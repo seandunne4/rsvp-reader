@@ -2,15 +2,20 @@
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import __version__
 
 PLANNED = {
-    "assemble": "M2: merge labels into doc.json",
-    "check": "M2: validate labels and doc.json",
     "serve": "M4: run the local library/reader server",
     "eval": "M6: score ingestion against golden documents",
 }
+
+
+def out(text: str) -> None:
+    """Write UTF-8 regardless of the console code page (Windows)."""
+    sys.stdout.buffer.write((text + "\n").encode("utf-8"))
+    sys.stdout.flush()
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
@@ -30,8 +35,6 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
-    from pathlib import Path
-
     from .extract import extract
 
     library = Path(args.library) if args.library else None
@@ -40,6 +43,57 @@ def cmd_extract(args: argparse.Namespace) -> int:
         doc_dir = extract(Path(pdf), library=library, ocr_mode=args.ocr)
         print(f"  -> {doc_dir}")
     return 0
+
+
+def _report(doc_dir: Path, doc: dict, warnings: list[str], errors: list[str], quiet: bool = False) -> int:
+    for e in errors:
+        out(f"  ERROR   {e}")
+    for w in ([] if quiet else warnings):
+        out(f"  warning {w}")
+    shown = sum(1 for f in doc["figures"])
+    status = "NOT WRITTEN (errors)" if errors else "doc.json written"
+    out(f"  {doc_dir.name}: {doc['stats']['paragraphs']} paragraphs, {doc['stats']['words']} words, "
+        f"{len(doc['sections']) - 1} sections, {shown} figures, {len(warnings)} warnings -> {status}")
+    return 1 if errors else 0
+
+
+def cmd_label_rules(args: argparse.Namespace) -> int:
+    from .library import resolve_doc
+    from .rules import write_rules
+
+    for ref in args.docs:
+        p = write_rules(resolve_doc(ref))
+        out(f"  wrote {p}")
+    return 0
+
+
+def cmd_assemble(args: argparse.Namespace) -> int:
+    from .assemble import assemble
+    from .library import resolve_doc
+
+    rc = 0
+    for ref in args.docs:
+        doc_dir = resolve_doc(ref)
+        doc, warnings, errors = assemble(doc_dir, write=not args.dry_run)
+        rc |= _report(doc_dir, doc, warnings, errors, quiet=args.quiet)
+    return rc
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    """extract + rules + assemble: what the upload button will do."""
+    from .assemble import assemble
+    from .extract import extract
+    from .rules import write_rules
+
+    rc = 0
+    library = Path(args.library) if args.library else None
+    for pdf in args.pdfs:
+        out(f"{pdf}")
+        doc_dir = extract(Path(pdf), library=library, ocr_mode=args.ocr, log=lambda *_: None)
+        write_rules(doc_dir)
+        doc, warnings, errors = assemble(doc_dir)
+        rc |= _report(doc_dir, doc, warnings, errors, quiet=True)
+    return rc
 
 
 def cmd_show_blocks(args: argparse.Namespace) -> int:
@@ -52,8 +106,15 @@ def cmd_show_blocks(args: argparse.Namespace) -> int:
         for part in args.pages.split(","):
             a, _, b = part.partition("-")
             pages.update(range(int(a), int(b or a) + 1))
-    text = show_blocks(resolve_doc(args.doc), pages=pages, full=args.full)
-    sys.stdout.buffer.write((text + "\n").encode("utf-8"))
+    out(show_blocks(resolve_doc(args.doc), pages=pages, full=args.full))
+    return 0
+
+
+def cmd_show_doc(args: argparse.Namespace) -> int:
+    from .library import resolve_doc
+    from .show import show_doc
+
+    out(show_doc(resolve_doc(args.doc), width=0 if args.full else 140))
     return 0
 
 
@@ -63,21 +124,49 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("doctor", help="check that dependencies are installed").set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("add", help="extract + rules + assemble a PDF into the library")
+    p.add_argument("pdfs", nargs="+")
+    p.add_argument("--library", help="library folder (default: RSVP_LIBRARY or ./library)")
+    p.add_argument("--ocr", choices=["auto", "always", "never"], default="auto")
+    p.set_defaults(func=cmd_add)
+
     p = sub.add_parser("extract", help="extract text blocks, figures and page images from PDFs")
     p.add_argument("pdfs", nargs="+")
     p.add_argument("--library", help="library folder (default: RSVP_LIBRARY or ./library)")
     p.add_argument("--ocr", choices=["auto", "always", "never"], default="auto")
     p.set_defaults(func=cmd_extract)
+
+    p = sub.add_parser("label-rules", help="write labels.rules.json with the basic rules labeler")
+    p.add_argument("docs", nargs="+", help="doc ids (or unique parts of ids)")
+    p.set_defaults(func=cmd_label_rules)
+
+    p = sub.add_parser("assemble", help="merge label layers into doc.json")
+    p.add_argument("docs", nargs="+")
+    p.add_argument("--dry-run", action="store_true", help="don't write doc.json")
+    p.add_argument("--quiet", action="store_true", help="hide warnings")
+    p.set_defaults(func=cmd_assemble)
+
+    p = sub.add_parser("check", help="validate labels and report warnings (doesn't write doc.json)")
+    p.add_argument("docs", nargs="+")
+    p.set_defaults(func=cmd_assemble, dry_run=True, quiet=False)
+
     p = sub.add_parser("show-blocks", help="print a compact per-page block listing")
-    p.add_argument("doc", help="doc id, unique id prefix, or doc folder")
-    p.add_argument("--pages", help="e.g. 1-3,7")
+    p.add_argument("doc", help="doc id, unique part of an id, or doc folder")
+    p.add_argument("--pages", help='e.g. "1-3,7" (quote it in PowerShell)')
     p.add_argument("--full", action="store_true", help="don't truncate block text")
     p.set_defaults(func=cmd_show_blocks)
+
+    p = sub.add_parser("show-doc", help="print the assembled document as plain text")
+    p.add_argument("doc")
+    p.add_argument("--full", action="store_true", help="don't truncate paragraphs")
+    p.set_defaults(func=cmd_show_doc)
+
     for name, desc in PLANNED.items():
         p = sub.add_parser(name, help=f"(not built yet) {desc}")
         p.set_defaults(func=lambda a, d=desc: (print(f"Not implemented yet. {d}"), 1)[1])
 
-    args, _rest = parser.parse_known_args(argv)
+    args = parser.parse_args(argv)
     return args.func(args)
 
 

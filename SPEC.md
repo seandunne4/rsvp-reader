@@ -95,9 +95,18 @@ Both ingestion paths produce the same output by construction: they only write la
   "merge": [["b40", "b41"]],
   "text_fixes": {"b22": [{"find": "marketready", "replace": "market-ready"}]},
   "figures": {"img3": {"kind": "chart", "label": "Exhibit 2", "anchor": {"block": "b30"}}},
-  "recaps": [{"section": "s2", "summary": "…", "check": {"q": "…", "a": "…"}}]
+  "recaps": [{"heading": "p5-b3", "summary": "…", "check": {"q": "…", "a": "…"}}]
 }
 ```
+Recaps point at the heading **block id** that opens the section (`null` for the opening section). Section ids are only assigned at assembly, so labels can't know them.
+
+Merge rules:
+- `meta`, `blocks` and `text_fixes` merge per key, and the higher layer wins (user > claude > rules).
+- `figures` merge per figure and per field.
+- `order`, `merge` and `recaps` are replaced wholesale by the highest layer that has them.
+- A text fix whose find/replace changes any digit needs a `"why"`; otherwise `check` warns.
+- Figure anchors can be `{"block": id}` (manual), `{"end": true}` (the "Remaining exhibits" stop), or omitted (automatic: reference, then proximity).
+
 Block roles: `title, subtitle, byline, dateline, heading, body, quote, list_item, caption, credit, endnote, figure_text, boilerplate`.
 - `endnote`: case endnote sections. Never RSVP'd.
 - `figure_text`: text inside a chart or table (extract flags it `in_figure`). Kept only as figure alt text.
@@ -190,6 +199,36 @@ Figures are kept out of `body`, so they never enter the word stream.
   - Exhibit pages with no picture get a title-to-"Source:" region (text tables, letter excerpts).
   - On OCR'd pages, text inside pictures ("TAP TO UNMUTE") goes to the figure's `ocr_text`, not the body.
 - **Left to the labelers (by design):** running heads and watermarks (flagged `margin_*`), ads, decorative images, reading order across columns and sticky bars, paragraph merges across pages, and OCR'd ticker chips ("MondelezMDLZ -0.08%").
+
+## Commands (as of M2)
+- `rsvp add <pdf…>` runs extract + rules + assemble: what the upload button will do.
+- `rsvp extract`, `rsvp label-rules` and `rsvp assemble` run the individual steps.
+- `rsvp check <doc>` validates the labels and prints warnings without writing `doc.json`.
+- `rsvp show-blocks <doc>` is the block listing for `/ingest`.
+- `rsvp show-doc <doc>` prints the assembled document the way the reader will present it.
+
+## M2 findings (what the basic rules get right on the 6 samples)
+- **Boilerplate removed:**
+  - running heads and footers, including a case title repeated in every header (the bigger first-page copy is kept)
+  - licensing watermarks
+  - browser print chrome
+  - Tribune ads, "[Most read]", the newsletter bar, and everything after the reporter's email sign-off
+  - kickers and reprint notices
+- **Structure:**
+  - Headings are found by size, bold, a different typeface (case sub-heads in Arial or Gill Sans) or OCR shape. A heading never starts lowercase or contains a sentence break.
+  - Endnote sections are dropped. Italic small-type block quotes are kept as quotes.
+- **Paragraphs:** any reading block that doesn't end a sentence continues into the next one: across pages, around captions, ads and sticky bars.
+- **Figures:**
+  - Kinds: raster charts are told apart from photos by whiteness and color count, and video stills by their "TAP TO UNMUTE" overlay. Logos, icons and banner strips are classed as decorative.
+  - Grouping: side-by-side photos are grouped under their shared caption; the images of a multi-image exhibit are grouped under the exhibit title.
+  - Anchoring: all cited case exhibits anchor at the end of the sentence that first cites them. Uncited ones go to "Remaining exhibits".
+  - Fixes: OCR'd ticker chips are removed with a text fix that gives its reason.
+- **Still for `/ingest`:**
+  - the credit split from captions ("PHOTO: …")
+  - an orphaned caption sentence inside a Cattle paragraph
+  - OCR quote-mark slips
+  - the byline and date fused in Cattle
+  - text-exhibit readability (Exhibit 15 is shown as an image)
 
 ## Build plan (milestones)
 - **M0** git init, uv project, folder layout, `.claude/launch.json`.

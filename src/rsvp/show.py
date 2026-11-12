@@ -6,6 +6,41 @@ import json
 from pathlib import Path
 
 
+def show_doc(doc_dir: Path, width: int = 140) -> str:
+    """Plain-text rendering of doc.json: what the reader will present, in order."""
+    doc = json.loads((doc_dir / "doc.json").read_text(encoding="utf-8"))
+    cut = (lambda s: s if not width or len(s) <= width else s[:width] + "…")
+    out = [f"TITLE    {doc['title']}"]
+    for k in ("subtitle", "byline", "dateline"):
+        if doc.get(k):
+            out.append(f"{k.upper():<8} {cut(doc[k])}")
+    out.append(f"INGEST   {doc['ingest']['method']}, {doc['stats']['words']} words, "
+               f"{len(doc['ingest']['warnings'])} warnings")
+    figs_at: dict[str, list] = {}
+    for f in doc["figures"]:
+        if f["anchor"]:
+            figs_at.setdefault(f["anchor"]["block"], []).append(f)
+    sec_title = {s["id"]: s["title"] for s in doc["sections"]}
+    cur = "s0"
+    for p in doc["body"]:
+        if p["section"] != cur:
+            cur = p["section"]
+            out.append(f"\n## {sec_title[cur]}")
+        tag = {"para": "", "quote": "> ", "list_item": "- "}[p["type"]]
+        out.append(f"[{p['id']}] {tag}{cut(p['text'])}")
+        for f in figs_at.get(p["id"], []):
+            out.append(f"    ▣ {f['kind'].upper()} {f['label'] or f['id']} ({f['anchor']['method']}, "
+                       f"{len(f['images'])} img): {cut(f['caption'] or '')}")
+    end = [f for f in doc["figures"] if not f["anchor"]]
+    if end:
+        out.append("\n## Remaining exhibits")
+        for f in end:
+            out.append(f"    ▣ {f['kind'].upper()} {f['label'] or f['id']} ({len(f['images'])} img): {cut(f['caption'] or '')}")
+    if doc.get("endnotes"):
+        out.append(f"\n({len(doc['endnotes'])} endnote blocks not shown)")
+    return "\n".join(out)
+
+
 def show_blocks(doc_dir: Path, pages: set[int] | None = None, width: int = 100, full: bool = False) -> str:
     ex = json.loads((doc_dir / "extract.json").read_text(encoding="utf-8"))
     out = [f"# {ex['id']}  ({ex['source']['original_name']}, {ex['source']['pages']} pages)"]

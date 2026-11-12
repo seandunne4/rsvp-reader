@@ -133,20 +133,51 @@ def _font_info(block: dict) -> dict:
     }
 
 
+def _family(font_name: str) -> str:
+    """'BCDEEE+TimesNewRomanPS-BoldMT' -> 'timesnewroman'."""
+    name = font_name.split("+")[-1].lower()
+    name = re.split(r"[-,]", name)[0]
+    return re.sub(r"(ps|mt|bold|italic|regular|oblique|light|medium)+$", "", name)
+
+
+def _line_font(line: dict) -> tuple[str, bool]:
+    """(dominant font name, bold) of a line, by character count."""
+    count: Counter = Counter()
+    for span in line["spans"]:
+        n = sum(1 for c in span["chars"] if not c["c"].isspace())
+        if n:
+            count[(span["font"], bool(span["flags"] & 16) or "bold" in span["font"].lower())] += n
+    return count.most_common(1)[0][0] if count else ("", False)
+
+
 def _split_paragraphs(block: dict) -> list[dict]:
-    """Split a PyMuPDF block where the vertical gap between lines is paragraph-sized."""
+    """Split a PyMuPDF block where the vertical gap between lines is paragraph-sized, or
+    where the font size jumps (authors line vs. title in a case's first-page block)."""
     lines = block["lines"]
     if len(lines) < 2:
         return [block]
     heights = [l["bbox"][3] - l["bbox"][1] for l in lines]
     h = statistics.median(heights)
+    sizes = [_line_text(l)[1] for l in lines]
+    fonts = [_line_font(l) for l in lines]
     parts, cur = [], [lines[0]]
-    for prev, line in zip(lines, lines[1:]):
+    last = 0  # index of the last line with ink (empty lines carry no font info)
+    for i, (prev, line) in enumerate(zip(lines, lines[1:]), start=1):
+        if not sizes[i]:
+            cur.append(line)
+            continue
         gap = line["bbox"][1] - prev["bbox"][3]
-        if gap > 0.55 * h:
+        a, b = sizes[last], sizes[i]
+        size_jump = a and b and max(a, b) / min(a, b) > 1.2
+        # A line in a different typeface (and weight or size) next to body text: a title
+        # or sticky bar the PDF lumped into one block ("Exhibit 15: ..." + the letter).
+        (fa, ba), (fb, bb) = fonts[last], fonts[i]
+        font_switch = bool(a) and _family(fa) != _family(fb) and (ba != bb or max(a, b) / min(a, b) > 1.05)
+        if gap > 0.55 * h or size_jump or font_switch:
             parts.append(cur)
             cur = []
         cur.append(line)
+        last = i
     parts.append(cur)
     if len(parts) == 1:
         return [block]
@@ -176,7 +207,12 @@ def _same_paragraph(prev: dict, b: dict) -> bool:
     gap = b["bbox"][1] - prev["bbox"][3]
     if not (-2 <= gap <= 0.5 * line_h):
         return False
-    return abs(b["bbox"][0] - prev["bbox"][0]) < 4  # same left edge
+    if abs(b["bbox"][0] - prev["bbox"][0]) >= 4:  # different left edge
+        return False
+    # A short last line ends a paragraph ("By Patrick Thomas" then the dateline).
+    right = max(prev["bbox"][2], b["bbox"][2])
+    width = right - prev["bbox"][0]
+    return prev["_last_x1"] >= right - 0.15 * width
 
 
 def native_blocks(page: pymupdf.Page) -> list[dict]:
@@ -189,11 +225,13 @@ def native_blocks(page: pymupdf.Page) -> list[dict]:
             line_texts = [t for t in (_line_text(l)[0] for l in part["lines"]) if t.strip()]
             if not line_texts:
                 continue
-            blk = {"bbox": list(part["bbox"]), "_lines": line_texts, "font": _font_info(part), "source": "native"}
+            blk = {"bbox": list(part["bbox"]), "_lines": line_texts, "font": _font_info(part), "source": "native",
+                   "_last_x1": part["lines"][-1]["bbox"][2]}
             if out and _same_paragraph(out[-1], blk):
                 prev = out[-1]
                 prev["_lines"] += line_texts
                 prev["bbox"] = _union(prev["bbox"], blk["bbox"])
+                prev["_last_x1"] = blk["_last_x1"]
                 continue
             out.append(blk)
     result = []
@@ -201,7 +239,7 @@ def native_blocks(page: pymupdf.Page) -> list[dict]:
         _finish(blk)
         if blk["text"]:
             blk["bbox"] = _r(blk["bbox"])
-            del blk["_lines"]
+            del blk["_lines"], blk["_last_x1"]
             result.append(blk)
     return result
 
@@ -394,7 +432,8 @@ def decide_ocr(blocks: list[dict], figures: list[dict], pr: pymupdf.Rect, mode: 
     return False, "clean"
 
 
-def extract(pdf: Path, library: Path | None = None, ocr_mode: str = "auto", log=print) -> Path:
+def extract(pdf: Path, library: Path | None = None, ocr_mode: str = "auto", log=print,
+            render_images: bool = True) -> Path:
     pdf = Path(pdf)
     sha = sha256_file(pdf)
     doc_dir = (library or library_dir()) / doc_id_for(pdf, sha)
@@ -433,13 +472,15 @@ def extract(pdf: Path, library: Path | None = None, ocr_mode: str = "auto", log=
 
         q, bad, _ = page_quality(blocks)
         img_name = f"pages/p{pno:03d}.png"
-        page.get_pixmap(dpi=PAGE_DPI).save(doc_dir / img_name)
+        if render_images:
+            page.get_pixmap(dpi=PAGE_DPI).save(doc_dir / img_name)
 
         fig_ids = []
         for fi, f in enumerate(figures, start=1):
             fid = f"p{pno}-f{fi}"
             fname = f"figures/{fid}.png"
-            page.get_pixmap(dpi=FIGURE_DPI, clip=pymupdf.Rect(f["bbox"])).save(doc_dir / fname)
+            if render_images:
+                page.get_pixmap(dpi=FIGURE_DPI, clip=pymupdf.Rect(f["bbox"])).save(doc_dir / fname)
             entry = {"id": fid, "page": pno, "bbox": _r(f["bbox"]), "origin": f["origin"], "image": fname}
             if fig_ocr.get(fi - 1):
                 entry["ocr_text"] = " ".join(fig_ocr[fi - 1])
