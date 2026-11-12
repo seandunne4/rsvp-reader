@@ -98,7 +98,13 @@ Both ingestion paths produce the same output by construction: they only write la
   "recaps": [{"section": "s2", "summary": "…", "check": {"q": "…", "a": "…"}}]
 }
 ```
-Block roles: `title, subtitle, byline, dateline, heading, body, quote, list_item, caption, credit, boilerplate`.
+Block roles: `title, subtitle, byline, dateline, heading, body, quote, list_item, caption, credit, endnote, figure_text, boilerplate`.
+- `endnote`: case endnote sections. Never RSVP'd.
+- `figure_text`: text inside a chart or table (extract flags it `in_figure`). Kept only as figure alt text.
+
+Figure groups: one exhibit can be several images (Amazon Exhibit 12 is five maps). The labels' `figures` entry takes `"group": "p41-f1"`, and grouped figures show together under the first one's label.
+
+Superscript note markers are stripped from block text during extraction and kept as `sups: [{at, text}]`. That way endnote numbers never become RSVP words.
 
 **doc.json** (what the reader loads):
 ```json
@@ -173,6 +179,17 @@ Figures are kept out of `body`, so they never enter the word stream.
 - Always run through the wrapper: `.\rsvp.ps1 <command>` on Windows, `./rsvp.sh <command>` on Mac. `test` runs pytest.
 - The wrapper keeps Python, the virtualenv and the uv cache in `~/.rsvp-reader/`. That keeps them out of OneDrive (no syncing between machines; Mac and Windows each get their own `venv-*`). On Windows it also keeps them out of AppData, which the Claude desktop app's sandbox redirects.
 - Sample PDFs live in `tests/fixtures/` (`oreo-wsj.pdf`, `cattle-wsj.pdf`, `goose-island-tribune.pdf`, `google-doubleclick-nyt.pdf`). Drop new samples there. Fixture PDFs and goldens are git-ignored because they're copyrighted.
+
+## M1 findings (what extraction handles)
+- **Garbage detection:** all 8 Oreo pages are flagged and OCR'd; the other 5 PDFs have none. OCR takes about 8 s per page (RapidOCR at 200 dpi, angle classifier off).
+- **Spacing:** rebuilt from glyph positions. That fixes missing spaces ("gotwhatit"), spurious spaces ("US C   ar"), letter-spaced running heads ("E n t e r p r i s e") and small caps ("A MAZON").
+- **Paragraphs:** browser prints that emit one block per line get merged back. OCR lines are grouped by spacing, and a short line inside a block splits it (headings).
+- **Figures:**
+  - Raster images and stroked vector drawings are captured.
+  - Fill-only page furniture (panels, shadows, sticky bars) is ignored.
+  - Exhibit pages with no picture get a title-to-"Source:" region (text tables, letter excerpts).
+  - On OCR'd pages, text inside pictures ("TAP TO UNMUTE") goes to the figure's `ocr_text`, not the body.
+- **Left to the labelers (by design):** running heads and watermarks (flagged `margin_*`), ads, decorative images, reading order across columns and sticky bars, paragraph merges across pages, and OCR'd ticker chips ("MondelezMDLZ -0.08%").
 
 ## Build plan (milestones)
 - **M0** git init, uv project, folder layout, `.claude/launch.json`.
