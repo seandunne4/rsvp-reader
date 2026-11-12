@@ -1,0 +1,16 @@
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Reading library (data, synced by OneDrive, not code)
+library/
+
+# Copyrighted course material: keep out of any remote repo
+tests/fixtures/*.pdf
+tests/golden/
+
+# OS
+.DS_Store
+Thumbs.db
