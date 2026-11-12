@@ -30,7 +30,8 @@ def show_doc(doc_dir: Path, width: int = 140) -> str:
         out.append(f"[{p['id']}] {tag}{cut(p['text'])}")
         for f in figs_at.get(p["id"], []):
             out.append(f"    ▣ {f['kind'].upper()} {f['label'] or f['id']} ({f['anchor']['method']}, "
-                       f"{len(f['images'])} img): {cut(f['caption'] or '')}")
+                       f"{len(f['images'])} img): {cut(f.get('title') or '')}{' | ' if f.get('title') else ''}"
+                       f"{cut(f['caption'] or '')}{'  [credit: ' + f['credit'] + ']' if f.get('credit') else ''}")
     end = [f for f in doc["figures"] if not f["anchor"]]
     if end:
         out.append("\n## Remaining exhibits")

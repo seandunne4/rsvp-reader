@@ -230,6 +230,16 @@ Figures are kept out of `body`, so they never enter the word stream.
   - the byline and date fused in Cattle
   - text-exhibit readability (Exhibit 15 is shown as an image)
 
+## M3 findings (/ingest on the 4 news samples)
+- The skill is at `.claude/skills/ingest/SKILL.md`. Running it on top of the rules mostly meant small corrections:
+  - **Cattle:** split the byline from the date, removed the leaked caption sentence ("Trey Wasserburger…"), split the photo credit, added titles and alt text for both charts.
+  - **NYT:** split one photo credit.
+  - **Tribune:** attached the orphaned slideshow caption to its photo (and the photo's second half across the page break), and split two credits.
+  - **Oreo:** restored dropped OCR quote marks in two quotes, fixed two missing spaces after quotes, split the byline from the date, and replaced a truncated credit ("MARK PETE") with the full one read from the page image.
+- Goldens are in `tests/golden/*.doc.json` (git-ignored). The user should spot-check them with `show-doc`.
+- Known cosmetic gap: OCR'd text mixes straight and curly quotes. It's left alone, since it doesn't affect reading.
+- Added `rsvp golden <doc>`, figure `credit` overrides, and BOM-tolerant label loading (Windows PowerShell adds a BOM).
+
 ## Build plan (milestones)
 - **M0** git init, uv project, folder layout, `.claude/launch.json`.
 - **M1** Extract: blocks, spacing and hyphen repair, garbage detection, RapidOCR fallback, figure crops, page PNGs. Verified on all 4 samples.

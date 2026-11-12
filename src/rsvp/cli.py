@@ -45,13 +45,14 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
-def _report(doc_dir: Path, doc: dict, warnings: list[str], errors: list[str], quiet: bool = False) -> int:
+def _report(doc_dir: Path, doc: dict, warnings: list[str], errors: list[str], quiet: bool = False,
+            dry_run: bool = False) -> int:
     for e in errors:
         out(f"  ERROR   {e}")
     for w in ([] if quiet else warnings):
         out(f"  warning {w}")
     shown = sum(1 for f in doc["figures"])
-    status = "NOT WRITTEN (errors)" if errors else "doc.json written"
+    status = "NOT WRITTEN (errors)" if errors else "ok (dry run, nothing written)" if dry_run else "doc.json written"
     out(f"  {doc_dir.name}: {doc['stats']['paragraphs']} paragraphs, {doc['stats']['words']} words, "
         f"{len(doc['sections']) - 1} sections, {shown} figures, {len(warnings)} warnings -> {status}")
     return 1 if errors else 0
@@ -75,7 +76,7 @@ def cmd_assemble(args: argparse.Namespace) -> int:
     for ref in args.docs:
         doc_dir = resolve_doc(ref)
         doc, warnings, errors = assemble(doc_dir, write=not args.dry_run)
-        rc |= _report(doc_dir, doc, warnings, errors, quiet=args.quiet)
+        rc |= _report(doc_dir, doc, warnings, errors, quiet=args.quiet, dry_run=args.dry_run)
     return rc
 
 
@@ -115,6 +116,24 @@ def cmd_show_doc(args: argparse.Namespace) -> int:
     from .show import show_doc
 
     out(show_doc(resolve_doc(args.doc), width=0 if args.full else 140))
+    return 0
+
+
+def cmd_golden(args: argparse.Namespace) -> int:
+    """Save a reviewed doc.json as the golden reference for a fixture."""
+    import shutil
+
+    from .library import PROJECT_ROOT, resolve_doc
+
+    doc_dir = resolve_doc(args.doc)
+    if not (doc_dir / "doc.json").exists():
+        out("No doc.json yet; run assemble first.")
+        return 1
+    name = args.name or doc_dir.name.rsplit("-", 1)[0]
+    dest = PROJECT_ROOT / "tests" / "golden" / f"{name}.doc.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(doc_dir / "doc.json", dest)
+    out(f"  saved {dest}")
     return 0
 
 
@@ -161,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("doc")
     p.add_argument("--full", action="store_true", help="don't truncate paragraphs")
     p.set_defaults(func=cmd_show_doc)
+
+    p = sub.add_parser("golden", help="save a reviewed doc.json to tests/golden/ as the reference")
+    p.add_argument("doc")
+    p.add_argument("--name", help="golden name (default: the doc id without its hash)")
+    p.set_defaults(func=cmd_golden)
 
     for name, desc in PLANNED.items():
         p = sub.add_parser(name, help=f"(not built yet) {desc}")

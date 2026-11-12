@@ -191,6 +191,7 @@ def assemble(doc_dir: Path, write: bool = True) -> tuple[dict, list[str], list[s
                 caption = rest or None
         if e.get("caption"):
             caption = e["caption"]
+        credit = e.get("credit") or " ".join(credit_parts.get(fid, [])) or None
         anchor, placement, refs = _anchor(fid, f, e, label, body, para_pos, ext_to_para, last_body_page, warnings)
         figures_out.append({
             "id": fid,
@@ -198,7 +199,7 @@ def assemble(doc_dir: Path, write: bool = True) -> tuple[dict, list[str], list[s
             "label": label,
             "title": e.get("title"),
             "caption": caption,
-            "credit": " ".join(credit_parts.get(fid, [])) or None,
+            "credit": credit,
             "images": images,
             "page": f["page"],
             "anchor": anchor,

@@ -47,7 +47,8 @@ def load_layers(doc_dir: Path) -> dict[str, dict]:
     for name in LAYERS:
         p = layer_path(doc_dir, name)
         if p.exists():
-            layers[name] = json.loads(p.read_text(encoding="utf-8"))
+            # utf-8-sig: tolerate a BOM (Windows PowerShell 5 adds one when saving UTF-8).
+            layers[name] = json.loads(p.read_text(encoding="utf-8-sig"))
     return layers
 
 
