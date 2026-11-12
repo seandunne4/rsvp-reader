@@ -18,7 +18,7 @@ dependencies = [
 rsvp = "rsvp.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]
 
 [build-system]
 requires = ["hatchling"]

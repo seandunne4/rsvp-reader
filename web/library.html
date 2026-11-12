@@ -1,0 +1,123 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RSVP Library</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  main{max-width:860px;margin:0 auto;padding:26px 20px 60px}
+  #drop{border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;color:var(--muted);margin-bottom:26px;transition:border-color .15s,background .15s}
+  #drop.over{border-color:var(--accent);background:var(--panel)}
+  #drop button{margin-left:6px}
+  .doc{display:grid;grid-template-columns:1fr auto;gap:6px 18px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+  .doc h2{font:600 16px/1.35 Georgia,"Iowan Old Style",serif;margin:0}
+  .doc .meta{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+  .doc .actions{grid-row:1 / span 3;grid-column:2;display:flex;gap:8px}
+  .bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden}
+  .bar>div{height:100%;background:var(--accent)}
+  .job{font-size:13.5px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel)}
+  .job.error{border-color:var(--focus)}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:4px}
+  code{font:12.5px ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+  #empty{color:var(--muted);text-align:center;padding:30px}
+  @media (max-width:560px){ .doc{grid-template-columns:1fr} .doc .actions{grid-row:auto;grid-column:1} }
+</style>
+</head>
+<body>
+<header class="bar"><h1>RSVP Library</h1><button id="theme" title="Toggle theme">◐</button></header>
+<main>
+  <div id="drop">Drop a PDF here, or <button id="pick">Choose PDF…</button>
+    <input id="file" type="file" accept="application/pdf,.pdf" hidden multiple>
+    <div class="hint">Processing runs locally. PDFs with a broken text layer are OCR'd, which takes about 8 seconds per page.</div>
+  </div>
+  <div id="jobs"></div>
+  <div id="docs"></div>
+  <div id="empty" hidden>No readings yet. Add a PDF above.</div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const lsGet = k => { try { return localStorage.getItem(k); } catch(e) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} };
+  const applyTheme = t => { if (t) document.documentElement.dataset.theme = t; };
+  applyTheme(lsGet('rsvp:theme'));
+  $('theme').onclick = () => {
+    const dark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    const t = dark ? 'light' : 'dark'; applyTheme(t); lsSet('rsvp:theme', t);
+  };
+
+  const jobs = new Map();  // job id -> {name, status, error, doc_id}
+
+  function fmtMin(m){ return m < 1 ? '<1 min' : `${Math.ceil(m)} min`; }
+
+  async function refresh(){
+    let data;
+    try { data = await (await fetch('/api/docs')).json(); } catch(e) { return; }
+    for (const j of data.jobs) if (!jobs.has(j.job)) jobs.set(j.job, j);
+    $('docs').innerHTML = data.docs.map(d => {
+      const pct = Math.round(d.progress * 100);
+      const ingest = d.method.includes('claude') ? '<span class="chip good">/ingest</span>' : '<span class="chip">rules only</span>';
+      const status = pct >= 100 ? 'Finished' : pct > 0 ? `${pct}% · ${fmtMin(d.minutes_left)} left` : `${fmtMin(d.minutes_left)}`;
+      return `<div class="doc">
+        <h2>${esc(d.title)}</h2>
+        <div class="actions">
+          <button disabled title="Review screen comes in M5">Review</button>
+          <a href="/read/${encodeURIComponent(d.id)}"><button class="primary">${pct > 0 && pct < 100 ? 'Resume' : 'Read'}</button></a>
+        </div>
+        <div class="meta"><span>${status}</span><span>·</span><span>${d.words.toLocaleString()} words</span>
+          ${d.figures ? `<span>·</span><span>${d.figures} figure${d.figures>1?'s':''}</span>` : ''}
+          ${ingest}${d.warnings ? `<span class="chip" title="Run rsvp check ${esc(d.id)}">${d.warnings} warning${d.warnings>1?'s':''}</span>` : ''}</div>
+        <div class="bar"><div style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+    $('empty').hidden = data.docs.length > 0 || jobs.size > 0;
+    renderJobs();
+  }
+
+  function renderJobs(){
+    $('jobs').innerHTML = [...jobs.entries()].map(([id, j]) => {
+      if (j.status === 'processing') return `<div class="job">Processing <b>${esc(j.name)}</b>…</div>`;
+      if (j.status === 'error') return `<div class="job error">Couldn't process <b>${esc(j.name)}</b>: ${esc(j.error)}</div>`;
+      return `<div class="job">Added <b>${esc(j.name)}</b>. For the cleanest text, run <code>/ingest ${esc(j.doc_id)}</code> in Claude Code.</div>`;
+    }).join('');
+  }
+
+  async function poll(){
+    let busy = false;
+    for (const [id, j] of jobs) {
+      if (j.status !== 'processing') continue;
+      busy = true;
+      try { Object.assign(j, await (await fetch(`/api/jobs/${id}`)).json()); } catch(e) {}
+      if (j.status !== 'processing') await refresh();
+    }
+    renderJobs();
+    setTimeout(poll, busy ? 1500 : 4000);
+  }
+
+  async function upload(files){
+    for (const f of files) {
+      if (!/\.pdf$/i.test(f.name)) { alert(`${f.name} isn't a PDF.`); continue; }
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch('/api/upload', {method: 'POST', body: fd});
+      if (!r.ok) { alert(`Upload failed: ${(await r.json()).detail}`); continue; }
+      const {job} = await r.json();
+      jobs.set(job, {name: f.name, status: 'processing'});
+    }
+    renderJobs();
+  }
+
+  $('pick').onclick = () => $('file').click();
+  $('file').onchange = e => { upload(e.target.files); e.target.value = ''; };
+  const drop = $('drop');
+  ['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => upload(e.dataTransfer.files));
+
+  refresh(); poll();
+})();
+</script>
+</body>
+</html>

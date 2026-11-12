@@ -240,6 +240,34 @@ Figures are kept out of `body`, so they never enter the word stream.
 - Known cosmetic gap: OCR'd text mixes straight and curly quotes. It's left alone, since it doesn't affect reading.
 - Added `rsvp golden <doc>`, figure `credit` overrides, and BOM-tolerant label loading (Windows PowerShell adds a BOM).
 
+## M4: server, library and reader
+- **Running it:** `.\rsvp.ps1 serve` (or `./rsvp.sh serve`) starts the server; open http://127.0.0.1:8765. It only listens on this computer.
+- **Code:** `src/rsvp/server.py` is FastAPI; `web/library.html`, `web/reader.html` and `web/reader.js` are vanilla JS with no build step.
+- **Library page:**
+  - Readings are listed newest-read first, with progress, time left, figure count and ingest status ("/ingest" vs "rules only").
+  - Upload is drag-and-drop or a file picker. It runs extract + rules + assemble in the background and then suggests `/ingest <id>`.
+- **Reader:** the prototype's engine, unchanged, running on `doc.json`.
+  - Figures are tokens in the stream. Charts, tables, exhibits and diagrams auto-pause and open full-size (setting); photos only flash a badge.
+  - Later mentions of an exhibit show an "Exhibit N ↗" badge (E opens it).
+  - The rail shows every figure. Ticks on the progress bar mark the pauses.
+  - "Remaining exhibits" is a final section.
+  - Keys: Shift+←/→ paragraph, ←/→ sentence, ↑/↓ speed, E exhibit, C recap, R restart, Esc closes.
+  - The paused context panel shows figure chips inline.
+- **Saved state (files in the library, so they sync):**
+  - `settings.json`: wpm, auto-pause, recaps.
+  - `<doc>/progress.json`: `{block, word, updated_at}`. The newest timestamp wins, so a stale save from the other machine can't overwrite. A localStorage copy covers the server being briefly unreachable.
+- **API:**
+  - `GET /api/docs`, `GET /api/docs/{id}`
+  - `GET /api/docs/{id}/files/{figures|pages}/…` (confined to those two folders)
+  - `GET|PUT /api/docs/{id}/progress`, `GET|PUT /api/settings`
+  - `POST /api/upload`, `GET /api/jobs/{job}`
+- **Verified in the browser:**
+  - The Cattle chart auto-pauses at its anchor and shows its title and alt text.
+  - Amazon Exhibit 1 pauses right after "(See Exhibit 1.)".
+  - Paragraph and sentence keys, section jump and rail all work.
+  - Resume after a reload lands on the same word.
+  - No console errors.
+
 ## Build plan (milestones)
 - **M0** git init, uv project, folder layout, `.claude/launch.json`.
 - **M1** Extract: blocks, spacing and hyphen repair, garbage detection, RapidOCR fallback, figure crops, page PNGs. Verified on all 4 samples.

@@ -7,7 +7,6 @@ from pathlib import Path
 from . import __version__
 
 PLANNED = {
-    "serve": "M4: run the local library/reader server",
     "eval": "M6: score ingestion against golden documents",
 }
 
@@ -119,6 +118,13 @@ def cmd_show_doc(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .server import serve
+
+    serve(host=args.host, port=args.port, library=Path(args.library) if args.library else None)
+    return 0
+
+
 def cmd_golden(args: argparse.Namespace) -> int:
     """Save a reviewed doc.json as the golden reference for a fixture."""
     import shutil
@@ -180,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("doc")
     p.add_argument("--full", action="store_true", help="don't truncate paragraphs")
     p.set_defaults(func=cmd_show_doc)
+
+    p = sub.add_parser("serve", help="run the local library + reader at http://127.0.0.1:8765")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--library", help="library folder (default: RSVP_LIBRARY or ./library)")
+    p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("golden", help="save a reviewed doc.json to tests/golden/ as the reference")
     p.add_argument("doc")

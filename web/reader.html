@@ -1,0 +1,125 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RSVP Reader</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body{display:flex;flex-direction:column;min-height:100vh}
+  header.bar a.back{text-decoration:none;color:var(--muted);font-size:20px;line-height:1}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;padding:9vh 20px 30px}
+  #section{color:var(--muted);font-size:13px;letter-spacing:.08em;text-transform:uppercase;height:20px;margin-bottom:18px;text-align:center;max-width:94vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #stage{position:relative;width:min(760px,94vw);height:150px;background:var(--panel);border:1px solid var(--line);border-radius:14px;cursor:pointer;user-select:none}
+  #stage::before,#stage::after{content:"";position:absolute;left:38%;width:2px;height:12px;background:var(--line)}
+  #stage::before{top:12px} #stage::after{bottom:12px}
+  #word{position:absolute;top:50%;transform:translateY(-50%);left:0;right:0;font:500 52px/1 Georgia,"Iowan Old Style",serif;white-space:pre}
+  #word .pre{position:absolute;text-align:right}
+  #word .orp{position:absolute;left:38%;transform:translateX(-50%);color:var(--focus)}
+  #word .post{position:absolute}
+  #card{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font:600 30px/1.2 Georgia,serif;text-align:center;padding:0 30px}
+  #badge{position:absolute;right:12px;bottom:10px;font-size:12px;display:none}
+  #badge button{font-size:12px;padding:2px 9px;border-radius:999px}
+  #hint{color:var(--muted);font-size:13px;margin-top:14px;min-height:20px;text-align:center}
+  #controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;margin-top:20px}
+  #wpmwrap{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+  #wpm{width:170px;accent-color:var(--accent)}
+  #wpmval{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;width:64px}
+  #play{min-width:92px}
+  #progresswrap{width:min(760px,94vw);margin-top:22px}
+  #barline{height:6px;background:var(--line);border-radius:3px;cursor:pointer;position:relative}
+  #fill{height:100%;background:var(--accent);border-radius:3px;width:0}
+  #ticks span{position:absolute;top:-3px;width:2px;height:12px;background:var(--muted);opacity:.5}
+  #meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12.5px;margin-top:6px;font-variant-numeric:tabular-nums}
+  #rail{width:min(760px,94vw);margin-top:16px;display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+  #rail:empty{display:none}
+  #rail button{flex:0 0 auto;padding:4px;border-radius:8px;display:flex;flex-direction:column;align-items:center;gap:3px;width:96px}
+  #rail img{width:86px;height:60px;object-fit:cover;border-radius:5px;background:var(--bg)}
+  #rail span{font-size:11px;color:var(--muted);width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  #rail button.seen span{color:var(--ink)}
+  #context{width:min(760px,94vw);margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;font:17px/1.65 Georgia,serif;display:none;max-height:34vh;overflow:auto}
+  #context .w{cursor:pointer;border-radius:3px}
+  #context .w:hover{background:var(--line)}
+  #context .cur{background:var(--hl)}
+  #context .lbl{font:12px/1 -apple-system,sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+  #context .fig{font:12px -apple-system,sans-serif;padding:0 7px;border-radius:999px;vertical-align:2px}
+  #context.quote{font-style:italic}
+  #keys{color:var(--muted);font-size:12.5px;margin-top:18px;text-align:center;line-height:1.9}
+  .overlay{position:fixed;inset:0;background:var(--shade);display:none;align-items:center;justify-content:center;z-index:10;padding:3vh 3vw}
+  .overlay.open{display:flex}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:min(1100px,96vw);max-height:94vh;overflow:auto;padding:18px 22px;position:relative}
+  .sheet h3{margin:0 0 4px;font:600 18px/1.3 Georgia,serif;padding-right:40px}
+  .sheet .kind{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .sheet .imgs{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:12px 0}
+  .sheet .imgs img{max-width:100%;max-height:70vh;border-radius:6px;background:#fff}
+  .sheet .imgs.many img{max-width:calc(50% - 6px);max-height:42vh}
+  .sheet p{margin:6px 0;font-size:14.5px}
+  .sheet .credit{font-size:12px;color:var(--muted)}
+  .sheet .close{position:absolute;top:12px;right:12px}
+  .sheet .foot{font-size:12.5px;color:var(--muted);margin-top:10px}
+  #settings .sheet{width:min(440px,92vw)}
+  #settings label{display:flex;gap:10px;align-items:flex-start;margin:12px 0;font-size:14.5px;cursor:pointer}
+  #settings label small{display:block;color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="back" href="/" title="Library">←</a>
+  <h1 id="doctitle">Loading…</h1>
+  <select id="jump" title="Jump to section"></select>
+  <button id="gear" title="Settings">⚙</button>
+  <button id="theme" title="Toggle theme">◐</button>
+</header>
+<main>
+  <div id="section"></div>
+  <div id="stage" title="Click or press space to play/pause">
+    <div id="word"></div>
+    <div id="card"></div>
+    <div id="badge"><button id="badgebtn"></button></div>
+  </div>
+  <div id="hint">Press <kbd>space</kbd> to start</div>
+  <div id="controls">
+    <button id="pback" title="Back one paragraph (Shift+←)">⟲¶</button>
+    <button id="back" title="Back one sentence (←)">⟲ Sentence</button>
+    <button id="play" class="primary">Play</button>
+    <button id="fwd" title="Forward one sentence (→)">Sentence ⟳</button>
+    <button id="pfwd" title="Forward one paragraph (Shift+→)">¶⟳</button>
+    <div id="wpmwrap">Speed <input id="wpm" type="range" min="150" max="900" step="25" value="300"><span id="wpmval">300 wpm</span></div>
+  </div>
+  <div id="progresswrap">
+    <div id="barline"><div id="fill"></div><div id="ticks"></div></div>
+    <div id="meta"><span id="pos"></span><span id="left"></span></div>
+  </div>
+  <div id="rail"></div>
+  <div id="context"></div>
+  <div id="keys"><kbd>space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> sentence · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> paragraph · <kbd>↑</kbd><kbd>↓</kbd> speed · <kbd>E</kbd> open referenced exhibit · <kbd>C</kbd> recap · <kbd>R</kbd> restart · while paused, click any word to jump there</div>
+</main>
+
+<div class="overlay" id="figure"><div class="sheet" role="dialog" aria-modal="true">
+  <button class="close" data-close>✕</button>
+  <div class="kind" id="fkind"></div><h3 id="ftitle"></h3>
+  <div class="imgs" id="fimgs"></div>
+  <p id="fcap"></p><p class="credit" id="fcredit"></p>
+  <div class="foot" id="ffoot"></div>
+</div></div>
+
+<div class="overlay" id="recap"><div class="sheet" role="dialog" aria-modal="true" style="max-width:640px">
+  <button class="close" data-close>✕</button>
+  <div class="kind">Recap</div><h3 id="rtitle"></h3>
+  <p id="rsummary"></p>
+  <p id="rq" style="margin-top:14px"></p>
+  <p><button id="rreveal">Show answer</button> <span id="ra" hidden></span></p>
+  <div class="foot"><kbd>space</kbd> to continue</div>
+</div></div>
+
+<div class="overlay" id="settings"><div class="sheet" role="dialog" aria-modal="true">
+  <button class="close" data-close>✕</button>
+  <h3>Reading settings</h3>
+  <label><input type="checkbox" id="s-autopause"><span>Pause at charts, tables and exhibits<small>The figure opens where the text first refers to it. Photos never interrupt: they're in the rail below the progress bar.</small></span></label>
+  <label><input type="checkbox" id="s-recaps"><span>Show recaps automatically at section breaks<small>Only for readings processed with /ingest and recaps. Otherwise press <kbd>C</kbd> when one is available.</small></span></label>
+  <div class="foot">Settings are saved in your library folder, so they follow you between computers.</div>
+</div></div>
+
+<script src="/static/reader.js"></script>
+</body>
+</html>
