@@ -17,3 +17,6 @@ Thumbs.db
 
 # Drop-in folder for new PDFs (copyrighted course material)
 Inbox/
+
+# Original prototype: contains a full copyrighted article, keep it local
+rsvp-reader-oreo-reeses.html
