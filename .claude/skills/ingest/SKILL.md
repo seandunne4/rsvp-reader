@@ -49,7 +49,8 @@ Files live in `library/<doc-id>/`:
    checklist.
 5. **Run `check`, then `assemble`.** Fix every error. For each warning, either fix it or be
    ready to explain why it's fine.
-6. **Skim `show-doc --full` once more** from top to bottom, as the reader would.
+6. **Skim `show-doc --full` once more** from top to bottom, as the reader would. Then write the
+   recaps (see below), then run `check` and `assemble` again.
 7. **Report** to the user, briefly:
    - what you changed, grouped by kind;
    - anything you weren't sure about, with page numbers;
@@ -131,6 +132,27 @@ How layers combine (user > claude > rules):
 - **`text_fixes`:** a `find` must occur in the block's extracted text (after earlier fixes in
   the same list). Use `"all": true` to replace every occurrence.
 
-Recaps (only when the user asks for them): `"recaps": [{"heading": "<heading block id or null for the
-opening section>", "summary": "2-3 sentences", "check": {"q": "...", "a": "..."}}]`. Write
-them from the assembled text, so they're faithful and don't editorialize.
+## Recaps
+
+Write recaps for business cases and for any reading with 3 or more sections, unless the user says
+not to. They're off by default in the reader, which shows them only on request (C key) or if the
+user turns on "Show recaps automatically". So they can't get in the way, but they should be good
+when asked for.
+
+```json
+"recaps": [{"heading": "<heading block id that opens the section, or null for the opening section>",
+            "summary": "2-3 sentences: what this section established",
+            "check": {"q": "one question about the point of the section", "a": "a 1-2 sentence answer"}}]
+```
+
+- Write them **after** the rest of the labels are final, from the assembled text (`show-doc --full`),
+  never from memory or outside knowledge. Every claim must be in that section.
+- Make the summary about the point, not a list of facts: what this section adds to the case's
+  argument or decision. Keep the numbers that matter, copied exactly.
+- The check question should test the takeaway ("Why did Enterprise avoid airports?"), not trivia
+  ("What year…?"). The answer comes from the text.
+- Don't editorialize or hint at "the answer" to the case's discussion questions. Recaps support
+  comprehension; they don't do the analysis.
+- One recap per section. Very short sections (under ~120 words) can be folded into the next one's
+  recap; skip their own entry.
+- The `heading` ids come from `labels.rules.json` / `show-blocks` (blocks with role `heading`).

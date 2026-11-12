@@ -284,6 +284,41 @@ Figures are kept out of `body`, so they never enter the word stream.
   - Setting Figure 1's anchor manually moved its chip, and Ctrl+Z restored the reference anchor.
   - No console errors.
 
+## M6: scoring, cases, recaps
+- **`rsvp eval [--mode library|rules] [-v]`** (`src/rsvp/evaluate.py`) scores documents against `tests/golden/*.doc.json`:
+  - word recall and precision (punctuation-blind)
+  - missing and leaked sentences
+  - reading-order Kendall tau
+  - heading recall and precision
+  - figure kind and anchor (within one paragraph)
+  - OCR pages and title
+  - `library` scores the current library docs; `rules` re-extracts each fixture with the free rules only.
+- **Rules-only vs golden** (what `/ingest` adds):
+
+  | Doc | Rules-only result |
+  |---|---|
+  | News (4) | Perfect body text, except Cattle's leaked caption sentence. `/ingest`'s value there was captions, credits, chart titles and alt text, and OCR quote marks, which the word score doesn't count. |
+  | Amazon | Word recall 0.988, 13 missing sentences (a body paragraph and the eight-bullet fact list dropped as "captions"), heading recall 0.77 (six plain-Arial sub-heads and "The World's Biggest . . ."), Exhibit 4 sent to the end because its citing paragraph was dropped. |
+  | Enterprise | Perfect text and headings; only figure kinds differ (exhibit vs chart/diagram). All of them pause either way. |
+
+  In library mode, all 6 docs match their goldens.
+- **Both cases through `/ingest`:**
+  - restored the missed headings, the dropped paragraph and the bullet list (as `list_item`s);
+  - set heading levels and figure kinds, and wrote alt text for the charts and table;
+  - fixed the "oneway" hyphen loss and removed a stray "Source:";
+  - Exhibit 4 now anchors at "(See Exhibit 4.)".
+- **Recaps:**
+  - The skill now writes them by default for cases and for readings with 3 or more sections. The reader shows them only on C or with the setting on.
+  - They're written from the assembled text: the section's point, its key numbers, and a takeaway question.
+  - Enterprise has 17 and Amazon 29; short intro sections fold into the next recap.
+  - Checked in the browser: the hint appears at the section break and C opens the recap with a hidden answer.
+- **Reader fix:** symbol-only tokens ("•", a spaced "—") attach to the previous word instead of flashing as words.
+
+## Status
+v1 (M0–M6) is complete: 51 tests pass, and all 6 samples match their reviewed goldens.
+- **Not yet verified:** running on the Mac (`./rsvp.sh serve`), and upload through the browser (covered only by the API test).
+- **The user still needs to:** spot-check the goldens, especially the two cases' recaps.
+
 ## Build plan (milestones)
 - **M0** git init, uv project, folder layout, `.claude/launch.json`.
 - **M1** Extract: blocks, spacing and hyphen repair, garbage detection, RapidOCR fallback, figure crops, page PNGs. Verified on all 4 samples.

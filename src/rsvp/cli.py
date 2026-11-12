@@ -6,9 +6,7 @@ from pathlib import Path
 
 from . import __version__
 
-PLANNED = {
-    "eval": "M6: score ingestion against golden documents",
-}
+PLANNED: dict[str, str] = {}
 
 
 def out(text: str) -> None:
@@ -118,6 +116,20 @@ def cmd_show_doc(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    from .evaluate import evaluate, report
+    from .library import PROJECT_ROOT, library_dir
+
+    results = evaluate(PROJECT_ROOT / "tests" / "golden", PROJECT_ROOT / "tests" / "fixtures",
+                       Path(args.library) if args.library else library_dir(), mode=args.mode, log=out)
+    if not results:
+        out("No goldens to score (save some with: rsvp golden <doc>).")
+        return 1
+    out(f"mode: {args.mode}")
+    out(report(results, verbose=args.verbose))
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
@@ -186,6 +198,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("doc")
     p.add_argument("--full", action="store_true", help="don't truncate paragraphs")
     p.set_defaults(func=cmd_show_doc)
+
+    p = sub.add_parser("eval", help="score documents against the goldens in tests/golden")
+    p.add_argument("--mode", choices=["library", "rules"], default="library",
+                   help="library: current doc.json (with /ingest); rules: fresh rules-only run")
+    p.add_argument("--library")
+    p.add_argument("-v", "--verbose", action="store_true", help="list missing/leaked sentences and figure problems")
+    p.set_defaults(func=cmd_eval)
 
     p = sub.add_parser("serve", help="run the local library + reader at http://127.0.0.1:8765")
     p.add_argument("--host", default="127.0.0.1")

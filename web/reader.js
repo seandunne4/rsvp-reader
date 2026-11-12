@@ -54,6 +54,14 @@
         // split long em-dash compounds so each half is readable (as in the prototype)
         for (const part of m[0].split(/(?<=—)/).filter(Boolean)) {
           const end = off + part.length;
+          // Symbol-only pieces ("•", a spaced "—", "...") aren't words: attach them to the
+          // previous word (keeping its punctuation pause), or drop them at paragraph start.
+          if (!/[\p{L}\p{N}]/u.test(part)) {
+            const prev = tokens[tokens.length - 1];
+            if (prev && prev.t === 'word' && prev.para === pi) prev.s += (part === '—' ? ' ' : '') + part;
+            off = end;
+            continue;
+          }
           const tok = {t: 'word', s: part, para: pi, pid: p.id, wi: wi++, sec: curTitle};
           const r = refs.find(r => r.char >= off && r.char < end);
           if (r) tok.ref = r.fig;
