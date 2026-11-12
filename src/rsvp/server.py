@@ -9,10 +9,13 @@ see the same readings, progress and settings:
 
 from __future__ import annotations
 
+import itertools
 import json
+import os
 import shutil
 import tempfile
 import threading
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,11 +61,26 @@ class Settings(BaseModel):
     recaps_auto: bool | None = None
 
 
-def create_app(library: Path | None = None) -> FastAPI:
+def default_inbox() -> Path:
+    """RSVP_INBOX env var, else <project>/Inbox (inside OneDrive, so either computer can fill it)."""
+    return Path(os.environ.get("RSVP_INBOX") or PROJECT_ROOT / "Inbox")
+
+
+def create_app(library: Path | None = None, inbox: Path | None = None, watch: bool = False) -> FastAPI:
     lib = Path(library) if library else library_dir()
     lib.mkdir(parents=True, exist_ok=True)
     app = FastAPI(title="RSVP Reader")
-    jobs: dict[str, dict] = {}  # upload jobs: id -> {name, status, error, doc_id}
+
+    @app.middleware("http")
+    async def no_stale_pages(request, call_next):
+        # Always revalidate, so an updated page or script is picked up on the next load
+        # instead of the browser silently showing a cached old version.
+        response = await call_next(request)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+    jobs: dict[str, dict] = {}  # import jobs: id -> {name, status, error, doc_id, source, started}
+    job_counter = itertools.count(1)
     lock = threading.Lock()
 
     def doc_dir(doc_id: str) -> Path:
@@ -166,7 +184,9 @@ def create_app(library: Path | None = None) -> FastAPI:
             })
         out.sort(key=lambda x: x["last_read"] or x["created_at"] or "", reverse=True)
         with lock:
-            pending = [dict(j, job=jid) for jid, j in jobs.items() if j["status"] != "done"]
+            # unfinished jobs, plus ones finished in the last 10 minutes (so the page can say "Added …")
+            pending = [dict(j, job=jid) for jid, j in jobs.items()
+                       if j["status"] != "done" or time.time() - j.get("started", 0) < 600]
         return {"docs": out, "jobs": pending}
 
     @app.get("/api/docs/{doc_id}")
@@ -217,11 +237,7 @@ def create_app(library: Path | None = None) -> FastAPI:
         dest = tmpdir / Path(file.filename).name
         with open(dest, "wb") as fh:
             shutil.copyfileobj(file.file, fh)
-        jid = f"job{len(jobs) + 1}"
-        with lock:
-            jobs[jid] = {"name": dest.name, "status": "processing", "error": None, "doc_id": None}
-        threading.Thread(target=_process, args=(jid, dest, tmpdir), daemon=True).start()
-        return {"job": jid}
+        return {"job": _start_job(dest.name, dest, tmpdir, source="upload")}
 
     @app.get("/api/jobs/{jid}")
     def job_status(jid: str):
@@ -229,6 +245,74 @@ def create_app(library: Path | None = None) -> FastAPI:
             if jid not in jobs:
                 raise HTTPException(404)
             return dict(jobs[jid], job=jid)
+
+    # --- Inbox folder: an upload path that doesn't depend on the browser -----------------
+    # Managed browsers can block file uploads and drag-and-drop. Copying PDFs into the Inbox
+    # folder (File Explorer / Finder) always works; the server imports them and moves the
+    # originals to Inbox/Imported.
+    inbox_dir = Path(inbox) if inbox else default_inbox()
+    seen_sizes: dict[str, tuple[int, float]] = {}
+
+    def _stable(p: Path, wait: float) -> bool:
+        """True once a file has stopped changing (still being copied or synced otherwise)."""
+        try:
+            st = p.stat()
+        except OSError:
+            return False
+        sig = (st.st_size, st.st_mtime)
+        if wait:
+            time.sleep(wait)
+            try:
+                st2 = p.stat()
+            except OSError:
+                return False
+            return st.st_size > 0 and sig == (st2.st_size, st2.st_mtime)
+        prev = seen_sizes.get(str(p))
+        seen_sizes[str(p)] = sig
+        return st.st_size > 0 and prev == sig
+
+    def scan_inbox(wait: float = 0.0) -> list[str]:
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        done_dir = inbox_dir / "Imported"
+        started = []
+        for p in sorted(x for x in inbox_dir.iterdir() if x.is_file() and x.suffix.lower() == ".pdf"):
+            if not _stable(p, wait):
+                continue
+            tmpdir = Path(tempfile.mkdtemp(prefix="rsvp-inbox-"))
+            work = tmpdir / p.name
+            try:
+                shutil.copy2(p, work)
+                done_dir.mkdir(exist_ok=True)
+                dest = done_dir / p.name
+                n = 2
+                while dest.exists():
+                    dest = done_dir / f"{p.stem} ({n}){p.suffix}"
+                    n += 1
+                shutil.move(str(p), dest)
+            except OSError:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue  # locked (e.g. still open elsewhere); try again next scan
+            seen_sizes.pop(str(p), None)
+            started.append(_start_job(p.name, work, tmpdir, source="inbox"))
+        return started
+
+    def _start_job(name: str, pdf: Path, tmpdir: Path, source: str) -> str:
+        with lock:
+            jid = f"job{next(job_counter)}"
+            jobs[jid] = {"name": name, "status": "processing", "error": None, "doc_id": None,
+                         "source": source, "started": time.time()}
+        threading.Thread(target=_process, args=(jid, pdf, tmpdir), daemon=True).start()
+        return jid
+
+    @app.get("/api/inbox")
+    def inbox_info():
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        pending = [x.name for x in inbox_dir.iterdir() if x.is_file() and x.suffix.lower() == ".pdf"]
+        return {"path": str(inbox_dir), "pending": pending}
+
+    @app.post("/api/inbox/scan")
+    def inbox_scan():
+        return {"jobs": scan_inbox(wait=0.5)}
 
     def _process(jid: str, pdf: Path, tmpdir: Path) -> None:
         from .assemble import assemble
@@ -249,6 +333,16 @@ def create_app(library: Path | None = None) -> FastAPI:
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    if watch:  # started last, once everything it calls is defined
+        def watcher():
+            while True:
+                try:
+                    scan_inbox()
+                except Exception:
+                    traceback.print_exc()
+                time.sleep(4)
+        threading.Thread(target=watcher, daemon=True).start()
+
     app.mount("/static", StaticFiles(directory=WEB), name="static")
     return app
 
@@ -265,5 +359,7 @@ def _words_before(doc: dict, prog: dict) -> int:
 def serve(host: str = "127.0.0.1", port: int = 8765, library: Path | None = None) -> None:
     import uvicorn
 
-    print(f"RSVP Reader on http://{host}:{port}  (library: {library or library_dir()})")
-    uvicorn.run(create_app(library), host=host, port=port, log_level="warning")
+    print(f"RSVP Reader on http://{host}:{port}")
+    print(f"  library: {library or library_dir()}")
+    print(f"  inbox:   {default_inbox()}  (copy PDFs here to add them)")
+    uvicorn.run(create_app(library, watch=True), host=host, port=port, log_level="warning")

@@ -314,6 +314,12 @@ Figures are kept out of `body`, so they never enter the word stream.
   - Checked in the browser: the hint appears at the section break and C opens the recap with a hidden answer.
 - **Reader fix:** symbol-only tokens ("•", a spaced "—") attach to the previous word instead of flashing as words.
 
+## Adding readings without the browser (Inbox)
+The browser upload and drop didn't work on the user's managed work PC. The server and page code both tested fine, so the likely cause is the browser blocking uploads, or a drop landing outside the box.
+- **Inbox folder:** `<project>/Inbox` (override with `RSVP_INBOX`). It sits in OneDrive, so either computer can fill it, and it's git-ignored. While `serve` runs, it imports any PDF copied there within about 4–8 seconds, waiting until the file has stopped changing. The original moves to `Inbox/Imported/`.
+- **Library page:** shows the Inbox path (with a Copy button) and a "Check Inbox now" button (`POST /api/inbox/scan`). The whole window is now a drop target, and upload failures show a message that points to the Inbox.
+- **No stale pages:** responses send `Cache-Control: no-cache`, so updated pages aren't served from the browser cache.
+
 ## Status
 v1 (M0–M6) is complete: 51 tests pass, and all 6 samples match their reviewed goldens.
 - **Not yet verified:** running on the Mac (`./rsvp.sh serve`), and upload through the browser (covered only by the API test).

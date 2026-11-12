@@ -94,6 +94,37 @@ def test_upload_runs_pipeline(client, tmp_path):
     assert "A Small Test Title" in titles
 
 
+def _small_pdf(path, title):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), title, fontsize=24)
+    for i in range(10):
+        page.insert_text((72, 160 + 15 * i), f"Plain body sentence number {i} for the inbox test.", fontsize=11)
+    doc.save(path)
+
+
+def test_inbox_folder_imports_pdfs(lib, tmp_path):
+    inbox = tmp_path / "Inbox"
+    inbox.mkdir()
+    _small_pdf(inbox / "Inbox Reading.pdf", "An Inbox Title")
+    (inbox / "notes.txt").write_text("not a pdf")
+    client = TestClient(create_app(lib, inbox=inbox))
+    assert client.get("/api/inbox").json()["pending"] == ["Inbox Reading.pdf"]
+    started = client.post("/api/inbox/scan").json()["jobs"]
+    assert len(started) == 1
+    for _ in range(100):
+        st = client.get(f"/api/jobs/{started[0]}").json()
+        if st["status"] != "processing":
+            break
+        time.sleep(0.2)
+    assert st["status"] == "done" and st["source"] == "inbox"
+    assert "An Inbox Title" in [d["title"] for d in client.get("/api/docs").json()["docs"]]
+    assert not (inbox / "Inbox Reading.pdf").exists()            # moved out of the inbox
+    assert (inbox / "Imported" / "Inbox Reading.pdf").exists()   # original kept
+    assert (inbox / "notes.txt").exists()                        # non-PDFs left alone
+    assert client.post("/api/inbox/scan").json()["jobs"] == []   # nothing imported twice
+
+
 def test_upload_rejects_non_pdf(client):
     r = client.post("/api/upload", files={"file": ("notes.txt", b"hello", "text/plain")})
     assert r.status_code == 400

@@ -10,6 +10,10 @@
   #drop{border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;color:var(--muted);margin-bottom:26px;transition:border-color .15s,background .15s}
   #drop.over{border-color:var(--accent);background:var(--panel)}
   #drop button{margin-left:6px}
+  #drop .inbox{font-size:13px;margin-top:12px;line-height:1.9}
+  #drop .inbox button{font-size:12.5px;padding:2px 9px}
+  #drop .inbox code{word-break:break-all}
+  body.dragging #drop{border-color:var(--accent);background:var(--panel)}
   .doc{display:grid;grid-template-columns:1fr auto;gap:6px 18px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
   .doc h2{font:600 16px/1.35 Georgia,"Iowan Old Style",serif;margin:0}
   .doc .meta{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
@@ -27,8 +31,11 @@
 <body>
 <header class="bar"><h1>RSVP Library</h1><button id="theme" title="Toggle theme">◐</button></header>
 <main>
-  <div id="drop">Drop a PDF here, or <button id="pick">Choose PDF…</button>
+  <div id="drop">Drop a PDF anywhere on this page, or <button id="pick">Choose PDF…</button>
     <input id="file" type="file" accept="application/pdf,.pdf" hidden multiple>
+    <div class="inbox"><b>Or use the Inbox folder</b> (works even if your browser blocks uploads): copy PDFs into
+      <code id="inboxpath">…</code> <button id="copypath" title="Copy folder path">Copy path</button>
+      and they're added automatically within a few seconds. <button id="scan">Check Inbox now</button></div>
     <div class="hint">Processing runs locally. PDFs with a broken text layer are OCR'd, which takes about 8 seconds per page.</div>
   </div>
   <div id="jobs"></div>
@@ -56,7 +63,7 @@
   async function refresh(){
     let data;
     try { data = await (await fetch('/api/docs')).json(); } catch(e) { return; }
-    for (const j of data.jobs) if (!jobs.has(j.job)) jobs.set(j.job, j);
+    for (const j of data.jobs) { if (jobs.has(j.job)) Object.assign(jobs.get(j.job), j); else jobs.set(j.job, j); }
     $('docs').innerHTML = data.docs.map(d => {
       const pct = Math.round(d.progress * 100);
       const ingest = d.method.includes('claude') ? '<span class="chip good">/ingest</span>' : '<span class="chip">rules only</span>';
@@ -97,26 +104,70 @@
     setTimeout(poll, busy ? 1500 : 4000);
   }
 
+  let inboxPath = '';
+  let localJob = 0;
+  function failJob(name, msg){
+    jobs.set('local' + (++localJob), {name, status: 'error',
+      error: `${msg} If your browser blocks uploads, copy the PDF into the Inbox folder instead: ${inboxPath}`});
+    renderJobs();
+  }
+
   async function upload(files){
+    if (!files || !files.length) { failJob('(no file)', 'The browser didn’t hand over any file.'); return; }
     for (const f of files) {
-      if (!/\.pdf$/i.test(f.name)) { alert(`${f.name} isn't a PDF.`); continue; }
-      const fd = new FormData(); fd.append('file', f);
-      const r = await fetch('/api/upload', {method: 'POST', body: fd});
-      if (!r.ok) { alert(`Upload failed: ${(await r.json()).detail}`); continue; }
-      const {job} = await r.json();
-      jobs.set(job, {name: f.name, status: 'processing'});
+      if (!/\.pdf$/i.test(f.name)) { failJob(f.name, 'That isn’t a PDF.'); continue; }
+      try {
+        const fd = new FormData(); fd.append('file', f);
+        const r = await fetch('/api/upload', {method: 'POST', body: fd});
+        if (!r.ok) {
+          let detail = r.statusText;
+          try { detail = (await r.json()).detail || detail; } catch (e) {}
+          failJob(f.name, `Upload was refused (${r.status}: ${detail}).`); continue;
+        }
+        const {job} = await r.json();
+        jobs.set(job, {name: f.name, status: 'processing'});
+      } catch (e) {
+        failJob(f.name, `Upload failed (${e.message}).`);
+      }
     }
     renderJobs();
   }
 
   $('pick').onclick = () => $('file').click();
   $('file').onchange = e => { upload(e.target.files); e.target.value = ''; };
-  const drop = $('drop');
-  ['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
-  ['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
-  drop.addEventListener('drop', e => upload(e.dataTransfer.files));
+  // The whole window is a drop target, so a PDF dropped slightly outside the box still uploads
+  // instead of the browser navigating away to show it.
+  let depth = 0;
+  window.addEventListener('dragenter', e => { e.preventDefault(); depth++; document.body.classList.add('dragging'); });
+  window.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+  window.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; document.body.classList.remove('dragging'); } });
+  window.addEventListener('drop', e => {
+    e.preventDefault(); depth = 0; document.body.classList.remove('dragging');
+    upload(e.dataTransfer && e.dataTransfer.files);
+  });
 
-  refresh(); poll();
+  async function loadInbox(){
+    try {
+      const info = await (await fetch('/api/inbox')).json();
+      inboxPath = info.path; $('inboxpath').textContent = info.path;
+    } catch (e) {}
+  }
+  $('copypath').onclick = async () => {
+    try { await navigator.clipboard.writeText(inboxPath); $('copypath').textContent = 'Copied'; }
+    catch (e) { $('copypath').textContent = 'Select the path and copy it'; }
+    setTimeout(() => { $('copypath').textContent = 'Copy path'; }, 2000);
+  };
+  $('scan').onclick = async () => {
+    $('scan').disabled = true;
+    try {
+      const {jobs: started} = await (await fetch('/api/inbox/scan', {method: 'POST'})).json();
+      if (!started.length) { $('scan').textContent = 'No new PDFs in the Inbox'; }
+      await refresh();
+    } catch (e) {}
+    setTimeout(() => { $('scan').disabled = false; $('scan').textContent = 'Check Inbox now'; }, 2000);
+  };
+
+  loadInbox(); refresh(); poll();
 })();
 </script>
 </body>

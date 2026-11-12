@@ -14,3 +14,6 @@ tests/golden/
 # OS
 .DS_Store
 Thumbs.db
+
+# Drop-in folder for new PDFs (copyrighted course material)
+Inbox/
