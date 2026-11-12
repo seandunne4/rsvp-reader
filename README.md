@@ -30,6 +30,10 @@ Everything runs **on your own computer**. Your PDFs aren't uploaded anywhere, an
 You need two free tools: **Git** (to download the code) and **uv** (which installs Python and
 everything else for you).
 
+The repository is private, so you also need a free [GitHub](https://github.com) account, and
+an invite from the owner. Accept the invite email first. The first time you run `git clone`,
+Git opens a window to sign in to GitHub.
+
 ### Windows
 
 Open **PowerShell** (Start menu → type "PowerShell") and run:
@@ -44,7 +48,7 @@ folder of your choice, for example your Documents folder:
 
 ```powershell
 cd $HOME\Documents
-git clone <REPOSITORY-LINK> RSVP-Reader
+git clone https://github.com/seandunne4/rsvp-reader.git RSVP-Reader
 cd RSVP-Reader
 ```
 
@@ -55,7 +59,7 @@ Open **Terminal**. If you don't have [Homebrew](https://brew.sh), install it fir
 ```bash
 brew install git uv
 cd ~/Documents
-git clone <REPOSITORY-LINK> RSVP-Reader
+git clone https://github.com/seandunne4/rsvp-reader.git RSVP-Reader
 cd RSVP-Reader
 ```
 
