@@ -1,0 +1,90 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review · RSVP</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  :root{ --r-body:#2f6fd6; --r-heading:#8a3ad6; --r-meta:#0f8a7a; --r-caption:#d98a1a; --r-quote:#2e9d4a;
+    --r-boiler:#9a958c; --r-figtext:#e0b060; --r-endnote:#8a5a3a; --r-fig:#d6452f; }
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  header.bar a.back{text-decoration:none;color:var(--muted);font-size:20px;line-height:1}
+  #status{font-size:12.5px;color:var(--muted);white-space:nowrap}
+  #warnings{border-bottom:1px solid var(--line);font-size:12.5px;padding:6px 22px;max-height:82px;overflow:auto;color:var(--muted)}
+  #warnings:empty{display:none}
+  #warnings b{color:var(--focus)}
+  .wrap{flex:1;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,1fr);min-height:0}
+  #left{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  #pagebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px}
+  #pagebar .flag{color:var(--focus)}
+  #pagebar .sp{flex:1}
+  #pageinfo{white-space:nowrap}
+  #legend{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted)}
+  @media (max-width:1100px){ #legend{flex-basis:100%} #pagebar .sp{display:none} }
+  @media (max-width:760px){ body{height:auto;overflow:auto} .wrap{grid-template-columns:1fr} #pagescroll,#preview{max-height:70vh} }
+  #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px;vertical-align:-1px}
+  #pagescroll{flex:1;overflow:auto;padding:14px;background:var(--bg)}
+  #page{position:relative;margin:0 auto;max-width:860px;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.18)}
+  #page img{display:block;width:100%;user-select:none}
+  .box{position:absolute;border:1.5px solid;border-radius:2px;cursor:pointer;background:transparent}
+  .box:hover{background:rgba(255,230,120,.25)}
+  .box.sel{outline:3px solid var(--accent);outline-offset:1px;background:rgba(47,91,214,.10)}
+  .box.user{border-width:2.5px}
+  .box.boilerplate{border-style:dotted;background:rgba(150,150,150,.12)}
+  .box .tag{position:absolute;top:-15px;left:-1px;font:600 10px/14px -apple-system,sans-serif;color:#fff;padding:0 4px;border-radius:2px 2px 0 0;white-space:nowrap;display:none}
+  .box:hover .tag,.box.sel .tag{display:block}
+  .fbox{position:absolute;border:2px dashed var(--r-fig);cursor:pointer}
+  .fbox.hidden{border-color:var(--r-boiler)}
+  .fbox.sel{outline:3px solid var(--accent)}
+  .fbox .tag{position:absolute;bottom:2px;right:2px;font:600 10.5px/15px -apple-system,sans-serif;background:var(--r-fig);color:#fff;padding:0 5px;border-radius:3px}
+  .fbox.hidden .tag{background:var(--r-boiler)}
+  #right{display:flex;flex-direction:column;min-height:0}
+  #inspector{border-bottom:1px solid var(--line);padding:12px 16px;font-size:13.5px;max-height:44vh;overflow:auto}
+  #inspector h4{margin:0 0 6px;font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #inspector .txt{font:14px/1.5 Georgia,serif;max-height:110px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;margin:6px 0}
+  #inspector .roles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  #inspector .roles button{padding:4px 9px;font-size:12.5px}
+  #inspector .roles button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  #inspector .row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  #inspector input[type=text]{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px;width:140px}
+  #inspector img{max-width:100%;max-height:130px;border-radius:4px;background:#fff}
+  .help{color:var(--muted);font-size:12.5px;line-height:1.7}
+  #preview{flex:1;overflow:auto;padding:14px 18px 40px;font:15px/1.6 Georgia,serif}
+  #preview h2{font:600 16px/1.3 -apple-system,sans-serif;margin:18px 0 6px}
+  #preview .meta{font:12.5px/1.5 -apple-system,sans-serif;color:var(--muted);margin-bottom:10px}
+  #preview p{margin:0 0 9px;padding:2px 6px;border-radius:5px;cursor:pointer;border-left:3px solid transparent}
+  #preview p:hover{background:var(--panel)}
+  #preview p.hit{background:var(--hl)}
+  #preview p.quote{font-style:italic;border-left-color:var(--r-quote)}
+  #preview .chip{font:11.5px -apple-system,sans-serif;cursor:pointer;margin:2px 0 10px 6px}
+  #preview .chip.pause{border-color:var(--r-fig);color:var(--r-fig)}
+  body.anchoring #preview p{outline:1px dashed var(--accent)}
+  body.anchoring #status{color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="back" href="/" title="Library">←</a>
+  <h1 id="doctitle">Review</h1>
+  <span id="status"></span>
+  <button id="undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
+  <a id="readlink"><button class="primary">Read</button></a>
+</header>
+<div id="warnings"></div>
+<div class="wrap">
+  <section id="left">
+    <div id="pagebar">
+      <button id="prev" title="Previous page (PgUp)">‹</button><span id="pageinfo"></span><button id="next" title="Next page (PgDn)">›</button>
+      <span class="sp"></span><div id="legend"></div>
+    </div>
+    <div id="pagescroll"><div id="page"><img id="pageimg" alt=""></div></div>
+  </section>
+  <section id="right">
+    <div id="inspector"></div>
+    <div id="preview"></div>
+  </section>
+</div>
+<script src="/static/review.js"></script>
+</body>
+</html>

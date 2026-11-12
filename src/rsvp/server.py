@@ -84,6 +84,65 @@ def create_app(library: Path | None = None) -> FastAPI:
         doc_dir(doc_id)
         return FileResponse(WEB / "reader.html")
 
+    @app.get("/review/{doc_id}", include_in_schema=False)
+    def review_page(doc_id: str):
+        doc_dir(doc_id)
+        return FileResponse(WEB / "review.html")
+
+    # --- review: page view + label editing (writes labels.user.json) -------------------
+    def review_state(d: Path) -> dict:
+        from . import labels as L
+
+        ex = L.load_extract(d)
+        layers = L.load_layers(d)
+        merged = L.merge_layers(layers)
+        roles = {}
+        for b in ex["blocks"]:
+            by = next((n for n in reversed(L.LAYERS) if b["id"] in (layers.get(n, {}).get("blocks") or {})), None)
+            e = merged["blocks"].get(b["id"], {})
+            roles[b["id"]] = {"role": e.get("role"), "by": by, "figure": e.get("figure"), "level": e.get("level")}
+        figures = {}
+        for f in ex["figures"]:
+            by = next((n for n in reversed(L.LAYERS) if f["id"] in (layers.get(n, {}).get("figures") or {})), None)
+            figures[f["id"]] = {**merged["figures"].get(f["id"], {}), "by": by}
+        user = layers.get("user") or L.new_labels(d, "user")
+        return {
+            "id": d.name,
+            "pages": ex["pages"],
+            "blocks": [{k: b[k] for k in ("id", "page", "bbox", "text", "font", "flags", "source") if k in b}
+                       | ({"in_figure": b["in_figure"]} if b.get("in_figure") else {}) for b in ex["blocks"]],
+            "figures": ex["figures"],
+            "roles": roles,
+            "figure_labels": figures,
+            "user": user,
+            "doc": _read_json(d / "doc.json"),
+        }
+
+    @app.get("/api/docs/{doc_id}/review")
+    def get_review(doc_id: str):
+        return review_state(doc_dir(doc_id))
+
+    @app.put("/api/docs/{doc_id}/labels/user")
+    def put_user_labels(doc_id: str, labels: dict):
+        from . import labels as L
+        from .assemble import assemble
+
+        d = doc_dir(doc_id)
+        ex = L.load_extract(d)
+        labels = {**labels, "schema": L.SCHEMA, "by": "user", "extract_sha": L.extract_sha(d)}
+        errors = L.validate(labels, ex, "labels.user")
+        if errors:
+            raise HTTPException(400, {"errors": errors})
+        with lock:
+            if L.has_content(labels):
+                L.write_layer(d, "user", labels)
+            else:
+                L.layer_path(d, "user").unlink(missing_ok=True)  # everything undone: no user layer
+            _, _, errors = assemble(d)
+        state = review_state(d)
+        state["errors"] = errors
+        return state
+
     # --- API ---------------------------------------------------------------------------
     @app.get("/api/docs")
     def list_docs():

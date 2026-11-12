@@ -242,7 +242,7 @@ def assemble(doc_dir: Path, write: bool = True) -> tuple[dict, list[str], list[s
         **meta,
         "source": {k: ex["source"][k] for k in ("file", "original_name", "sha256", "pages")},
         "ingest": {
-            "method": "+".join(n for n in L.LAYERS if n in layers) or "none",
+            "method": "+".join(n for n in L.LAYERS if n in layers and L.has_content(layers[n])) or "none",
             "ocr_pages": [p["n"] for p in ex["pages"] if p["ocr"]],
             "warnings": warnings,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

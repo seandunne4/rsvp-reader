@@ -116,6 +116,14 @@ def validate(labels: dict, extract: dict, name: str = "labels") -> list[str]:
     return errors
 
 
+CONTENT_KEYS = ("meta", "blocks", "text_fixes", "figures", "order", "merge", "recaps")
+
+
+def has_content(labels: dict) -> bool:
+    """False for a layer with no actual labels (e.g. every review edit was undone)."""
+    return any(labels.get(k) for k in CONTENT_KEYS)
+
+
 def new_labels(doc_dir: Path, by: str) -> dict:
     return {"schema": SCHEMA, "extract_sha": extract_sha(doc_dir), "by": by,
             "meta": {}, "blocks": {}, "text_fixes": {}, "figures": {}}

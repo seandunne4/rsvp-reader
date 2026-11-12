@@ -64,7 +64,7 @@
       return `<div class="doc">
         <h2>${esc(d.title)}</h2>
         <div class="actions">
-          <button disabled title="Review screen comes in M5">Review</button>
+          <a href="/review/${encodeURIComponent(d.id)}"><button title="Check and fix how the PDF was read">Review</button></a>
           <a href="/read/${encodeURIComponent(d.id)}"><button class="primary">${pct > 0 && pct < 100 ? 'Resume' : 'Read'}</button></a>
         </div>
         <div class="meta"><span>${status}</span><span>·</span><span>${d.words.toLocaleString()} words</span>

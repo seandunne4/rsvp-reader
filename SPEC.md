@@ -268,6 +268,22 @@ Figures are kept out of `body`, so they never enter the word stream.
   - Resume after a reload lands on the same word.
   - No console errors.
 
+## M5: review screen
+- **Where:** `/review/<doc>` (Review button in the library). Code in `web/review.html` and `web/review.js`.
+- **Left:** the page image with every block outlined in its role's color. A thicker outline means the user set it; dotted means dropped. Figures are dashed boxes. PgUp/PgDn change pages, ↑/↓ step through blocks, OCR pages are flagged.
+- **Right:** an inspector (role, which layer set it, font, flags, full text) and a live preview of the assembled document.
+  - Clicking a preview paragraph finds it on the page.
+  - Figure chips show where the reader will pause.
+- **Editing:**
+  - Block keys: B body, H heading (Shift+H sub-heading), C caption (links to the nearest figure), Q quote, X drop, U back to automatic. "More…" covers the other roles.
+  - Figures: change the kind or label; press A, then click a paragraph to set where it appears; "Move to end"; "Automatic placement".
+  - Ctrl+Z undoes.
+- **Saving:** every edit PUTs the whole user layer to `/api/docs/{id}/labels/user`. The server validates it (rejecting it if invalid), writes `labels.user.json` and re-assembles `doc.json`. If every override is undone, the user layer file is removed.
+- **Verified in the browser** (Enterprise):
+  - Dropping a heading removed its section from the preview, and U restored it.
+  - Setting Figure 1's anchor manually moved its chip, and Ctrl+Z restored the reference anchor.
+  - No console errors.
+
 ## Build plan (milestones)
 - **M0** git init, uv project, folder layout, `.claude/launch.json`.
 - **M1** Extract: blocks, spacing and hyphen repair, garbage detection, RapidOCR fallback, figure crops, page PNGs. Verified on all 4 samples.
