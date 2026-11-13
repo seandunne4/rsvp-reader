@@ -69,17 +69,33 @@ cd RSVP-Reader
 
 ## Start the reader
 
+**Double-click the launcher** in the `RSVP-Reader` folder:
+
+- **Windows:** `Start RSVP Reader.bat`
+- **Mac:** `Start RSVP Reader.command`
+
+A window opens to run the reader, and your browser opens the library at
+**http://127.0.0.1:8765**.
+
+**Keep that window open while you read.** Closing it stops the reader. If it stops, the library
+page shows a red "The reader has stopped" box; double-click the launcher again and the page
+reconnects by itself. If the reader is already running, double-clicking just opens the page.
+
+<details><summary>Prefer the command line?</summary>
+
 From the `RSVP-Reader` folder:
 
 | Windows (PowerShell) | Mac (Terminal) |
 |---|---|
-| `powershell -ExecutionPolicy Bypass -File .\rsvp.ps1 serve` | `./rsvp.sh serve` |
+| `powershell -ExecutionPolicy Bypass -File .\rsvp.ps1 serve --open` | `./rsvp.sh serve --open` |
 
-Then open **http://127.0.0.1:8765** in your browser. Keep the PowerShell or Terminal window open
-while you read; closing it (or pressing Ctrl+C) stops the reader.
+On Windows, `-ExecutionPolicy Bypass` gets around Windows' default block on running script files.
+It applies only to this one command. Leave out `--open` if you don't want a browser tab opened.
+</details>
 
-(On Windows, `-ExecutionPolicy Bypass` gets around Windows' default block on running script
-files. It applies only to this one command.)
+**Tip:** for one-click starts, make a shortcut to the launcher on your desktop. On Windows,
+right-click → Show more options → Send to → Desktop. On a Mac, drag it to the Dock while holding
+⌘ and ⌥.
 
 ## Add a reading
 
@@ -173,12 +189,17 @@ Then restart the reader. Your library isn't touched.
 
 ## Troubleshooting
 
-- **"running scripts is disabled on this system" (Windows):** use the full command above with
-  `-ExecutionPolicy Bypass`.
+- **"The reader has stopped" / "Failed to fetch":** the reader's window was closed or the computer
+  went to sleep. Double-click the launcher again; the page reconnects by itself.
+- **"running scripts is disabled on this system" (Windows):** use the launcher, or the full
+  command above with `-ExecutionPolicy Bypass`.
+- **The Mac launcher won't open ("unidentified developer"):** right-click it, choose Open, then
+  confirm. You only need to do this once. If it says you don't have permission, run
+  `chmod +x "Start RSVP Reader.command" rsvp.sh` in Terminal from the folder.
 - **"uv is not recognized" / "command not found: uv":** open a new PowerShell or Terminal window
   after installing uv. On Mac, check that Homebrew finished without errors.
-- **Port already in use:** another copy is probably still running. Close it, or start on a
-  different port with `serve --port 8766` and open http://127.0.0.1:8766.
+- **Port already in use:** something else is using port 8765. Start on a different port with
+  `serve --port 8766 --open`.
 - **Upload or drag-and-drop does nothing:** your browser may be blocking file uploads. Use the
   Inbox folder instead.
 - **A reading looks wrong:** open it in Review and fix the blocks, or run `/ingest` on it if

@@ -356,10 +356,39 @@ def _words_before(doc: dict, prog: dict) -> int:
     return 0
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765, library: Path | None = None) -> None:
+def _already_running(url: str) -> bool:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url + "/api/settings", timeout=1.5) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def serve(host: str = "127.0.0.1", port: int = 8765, library: Path | None = None, open_browser: bool = False) -> None:
+    import webbrowser
+
     import uvicorn
 
-    print(f"RSVP Reader on http://{host}:{port}")
+    url = f"http://{host}:{port}"
+    if _already_running(url):
+        # Double-clicking the launcher twice shouldn't fail with "port in use": just show the page.
+        print(f"RSVP Reader is already running at {url}", flush=True)
+        if open_browser:
+            webbrowser.open(url)
+        return
+
+    print(f"RSVP Reader on {url}")
     print(f"  library: {library or library_dir()}")
     print(f"  inbox:   {default_inbox()}  (copy PDFs here to add them)")
+    print("  Keep this window open while you read. Close it (or press Ctrl+C) to stop the reader.", flush=True)
+    if open_browser:
+        def open_when_ready():
+            for _ in range(60):
+                if _already_running(url):
+                    webbrowser.open(url)
+                    return
+                time.sleep(0.5)
+        threading.Thread(target=open_when_ready, daemon=True).start()
     uvicorn.run(create_app(library, watch=True), host=host, port=port, log_level="warning")

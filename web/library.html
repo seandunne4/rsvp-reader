@@ -25,12 +25,19 @@
   .hint{font-size:12.5px;color:var(--muted);margin-top:4px}
   code{font:12.5px ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px}
   #empty{color:var(--muted);text-align:center;padding:30px}
+  #offline{border:1.5px solid var(--focus);border-radius:12px;padding:12px 16px;margin-bottom:18px;background:var(--panel);font-size:14px;line-height:1.6}
+  #offline b{color:var(--focus)}
+  .job.error{cursor:pointer}
+  .job .x{float:right;color:var(--muted);font-size:12px}
   @media (max-width:560px){ .doc{grid-template-columns:1fr} .doc .actions{grid-row:auto;grid-column:1} }
 </style>
 </head>
 <body>
 <header class="bar"><h1>RSVP Library</h1><button id="theme" title="Toggle theme">◐</button></header>
 <main>
+  <div id="offline" hidden><b>The reader has stopped.</b> This page can't reach it, so uploads and reading won't work.
+    Start it again: double-click <b>Start RSVP Reader</b> in the RSVP-Reader folder (or run the serve command), and
+    keep its window open while you read. This page reconnects by itself.</div>
   <div id="drop">Drop a PDF anywhere on this page, or <button id="pick">Choose PDF…</button>
     <input id="file" type="file" accept="application/pdf,.pdf" hidden multiple>
     <div class="inbox"><b>Or use the Inbox folder</b> (works even if your browser blocks uploads): copy PDFs into
@@ -60,9 +67,21 @@
 
   function fmtMin(m){ return m < 1 ? '<1 min' : `${Math.ceil(m)} min`; }
 
+  let online = true;
+  function setOnline(ok){
+    online = ok;
+    $('offline').hidden = ok;
+  }
+
   async function refresh(){
     let data;
-    try { data = await (await fetch('/api/docs')).json(); } catch(e) { return; }
+    try {
+      const r = await fetch('/api/docs', {cache: 'no-store'});
+      if (!r.ok) throw new Error(r.status);
+      data = await r.json();
+    } catch(e) { setOnline(false); return; }
+    if (!online) loadInbox();
+    setOnline(true);
     for (const j of data.jobs) { if (jobs.has(j.job)) Object.assign(jobs.get(j.job), j); else jobs.set(j.job, j); }
     $('docs').innerHTML = data.docs.map(d => {
       const pct = Math.round(d.progress * 100);
@@ -87,7 +106,7 @@
   function renderJobs(){
     $('jobs').innerHTML = [...jobs.entries()].map(([id, j]) => {
       if (j.status === 'processing') return `<div class="job">Processing <b>${esc(j.name)}</b>…</div>`;
-      if (j.status === 'error') return `<div class="job error">Couldn't process <b>${esc(j.name)}</b>: ${esc(j.error)}</div>`;
+      if (j.status === 'error') return `<div class="job error" data-dismiss="${esc(id)}" title="Click to dismiss"><span class="x">✕</span>Couldn't process <b>${esc(j.name)}</b>: ${esc(j.error)}</div>`;
       return `<div class="job">Added <b>${esc(j.name)}</b>. For the cleanest text, run <code>/ingest ${esc(j.doc_id)}</code> in Claude Code.</div>`;
     }).join('');
   }
@@ -100,15 +119,20 @@
       try { Object.assign(j, await (await fetch(`/api/jobs/${id}`)).json()); } catch(e) {}
       if (j.status !== 'processing') await refresh();
     }
+    if (!busy) await refresh();  // also notices when the reader stops or comes back
     renderJobs();
     setTimeout(poll, busy ? 1500 : 4000);
   }
+  $('jobs').addEventListener('click', e => {
+    const el = e.target.closest('[data-dismiss]');
+    if (el) { jobs.delete(el.dataset.dismiss); renderJobs(); }
+  });
 
   let inboxPath = '';
   let localJob = 0;
-  function failJob(name, msg){
+  function failJob(name, msg, hint = true){
     jobs.set('local' + (++localJob), {name, status: 'error',
-      error: `${msg} If your browser blocks uploads, copy the PDF into the Inbox folder instead: ${inboxPath}`});
+      error: msg + (hint ? ` If your browser blocks uploads, copy the PDF into the Inbox folder instead: ${inboxPath}` : '')});
     renderJobs();
   }
 
@@ -127,7 +151,10 @@
         const {job} = await r.json();
         jobs.set(job, {name: f.name, status: 'processing'});
       } catch (e) {
-        failJob(f.name, `Upload failed (${e.message}).`);
+        // No response at all: almost always the reader isn't running (window closed, PC slept).
+        await refresh();
+        if (!online) failJob(f.name, 'The reader isn’t running, so nothing could be uploaded. Start it again (see the red box above), then try once more.', false);
+        else failJob(f.name, `Upload failed (${e.message}).`);
       }
     }
     renderJobs();

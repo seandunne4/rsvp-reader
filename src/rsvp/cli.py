@@ -133,7 +133,8 @@ def cmd_eval(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
-    serve(host=args.host, port=args.port, library=Path(args.library) if args.library else None)
+    serve(host=args.host, port=args.port, library=Path(args.library) if args.library else None,
+          open_browser=args.open)
     return 0
 
 
@@ -210,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--library", help="library folder (default: RSVP_LIBRARY or ./library)")
+    p.add_argument("--open", action="store_true", help="open the library in your browser once it's ready")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("golden", help="save a reviewed doc.json to tests/golden/ as the reference")
