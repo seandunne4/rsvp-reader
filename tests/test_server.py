@@ -125,6 +125,28 @@ def test_inbox_folder_imports_pdfs(lib, tmp_path):
     assert client.post("/api/inbox/scan").json()["jobs"] == []   # nothing imported twice
 
 
+def test_added_date_is_stable(client, lib):
+    d = lib / "demo-1234abcd"
+    (d / "extract.json").write_text(json.dumps({"created_at": "2026-03-01T10:00:00+00:00"}), encoding="utf-8")
+    first = client.get("/api/docs").json()["docs"][0]["added_at"]
+    assert first == "2026-03-01T10:00:00+00:00"
+    # re-processing rewrites extract.json, but the date added doesn't change
+    (d / "extract.json").write_text(json.dumps({"created_at": "2026-09-09T09:00:00+00:00"}), encoding="utf-8")
+    assert client.get("/api/docs").json()["docs"][0]["added_at"] == first
+
+
+def test_remove_and_undo(client, lib):
+    hdr = {"X-RSVP-Reader": "1"}
+    assert client.delete("/api/docs/demo-1234abcd").status_code == 403          # header required
+    r = client.delete("/api/docs/demo-1234abcd", headers=hdr).json()
+    assert client.get("/api/docs").json()["docs"] == []
+    assert not (lib / "demo-1234abcd").exists()
+    assert (lib / ".removed" / r["restore_token"] / "doc.json").exists()       # kept, not deleted
+    assert client.post("/api/docs/demo-1234abcd/restore", json={"token": "../../x"}, headers=hdr).status_code == 404
+    assert client.post("/api/docs/demo-1234abcd/restore", json={"token": r["restore_token"]}, headers=hdr).status_code == 200
+    assert [d["title"] for d in client.get("/api/docs").json()["docs"]] == ["Demo Reading"]
+
+
 def test_upload_rejects_non_pdf(client):
     r = client.post("/api/upload", files={"file": ("notes.txt", b"hello", "text/plain")})
     assert r.status_code == 400

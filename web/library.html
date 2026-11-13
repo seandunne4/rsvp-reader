@@ -30,6 +30,16 @@
   #autostartwrap{font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
   #autostartwrap[hidden]{display:none}
   .job.error{cursor:pointer}
+  #toolbar{display:flex;gap:10px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+  #toolbar[hidden]{display:none}
+  #search{flex:1;min-width:180px;font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  #count{font-size:12.5px}
+  #nomatch{text-align:center;padding:20px}
+  .doc .remove{background:none;border:none;color:var(--muted);font-size:12.5px;padding:2px 4px;text-decoration:underline;cursor:pointer}
+  .doc .remove:hover{color:var(--focus)}
+  #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 14px;font-size:14px;display:flex;gap:12px;align-items:center;box-shadow:0 4px 18px rgba(0,0,0,.25);z-index:5}
+  #toast[hidden]{display:none}
+  #toast button{background:transparent;color:var(--bg);border-color:var(--bg);padding:3px 10px}
   .job .x{float:right;color:var(--muted);font-size:12px}
   @media (max-width:560px){ .doc{grid-template-columns:1fr} .doc .actions{grid-row:auto;grid-column:1} }
 </style>
@@ -51,8 +61,20 @@
     <div class="hint">Processing runs locally. PDFs with a broken text layer are OCR'd, which takes about 8 seconds per page.</div>
   </div>
   <div id="jobs"></div>
+  <div id="toolbar" hidden>
+    <input id="search" type="search" placeholder="Search readings…" aria-label="Search readings by title, author or file name">
+    <select id="sort" aria-label="Sort readings">
+      <option value="read">Recently read</option>
+      <option value="added">Recently added</option>
+      <option value="title">Title A–Z</option>
+      <option value="progress">Least finished first</option>
+    </select>
+    <span id="count" class="muted"></span>
+  </div>
   <div id="docs"></div>
+  <div id="nomatch" class="muted" hidden>No readings match your search.</div>
   <div id="empty" hidden>No readings yet. Add a PDF above.</div>
+  <div id="toast" hidden></div>
 </main>
 <script>
 (() => {
@@ -88,10 +110,40 @@
     if (!online) { loadInbox(); loadAutostart(); }
     setOnline(true);
     for (const j of data.jobs) { if (jobs.has(j.job)) Object.assign(jobs.get(j.job), j); else jobs.set(j.job, j); }
-    $('docs').innerHTML = data.docs.map(d => {
+    allDocs = data.docs;
+    renderDocs();
+    renderJobs();
+  }
+
+  // --- list: search, sort, date added, remove ---
+  let allDocs = [];
+  $('sort').value = lsGet('rsvp:sort') || 'read';
+  if (![...$('sort').options].some(o => o.value === $('sort').value)) $('sort').value = 'read';
+  const fmtDate = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(undefined, sameYear ? {month: 'short', day: 'numeric'} : {month: 'short', day: 'numeric', year: 'numeric'});
+  };
+  const SORTS = {
+    read: (a, b) => (b.last_read || b.added_at || '').localeCompare(a.last_read || a.added_at || ''),
+    added: (a, b) => (b.added_at || '').localeCompare(a.added_at || ''),
+    title: (a, b) => a.title.localeCompare(b.title, undefined, {sensitivity: 'base'}),
+    progress: (a, b) => a.progress - b.progress || (b.added_at || '').localeCompare(a.added_at || ''),
+  };
+
+  function renderDocs(){
+    const q = $('search').value.trim().toLowerCase();
+    const terms = q.split(/\s+/).filter(Boolean);
+    const shown = allDocs
+      .filter(d => { const hay = `${d.title} ${d.byline || ''} ${d.source || ''}`.toLowerCase(); return terms.every(t => hay.includes(t)); })
+      .sort(SORTS[$('sort').value] || SORTS.read);
+    $('docs').innerHTML = shown.map(d => {
       const pct = Math.round(d.progress * 100);
       const ingest = d.method.includes('claude') ? '<span class="chip good">/ingest</span>' : '<span class="chip">rules only</span>';
       const status = pct >= 100 ? 'Finished' : pct > 0 ? `${pct}% · ${fmtMin(d.minutes_left)} left` : `${fmtMin(d.minutes_left)}`;
+      const added = fmtDate(d.added_at);
       return `<div class="doc">
         <h2>${esc(d.title)}</h2>
         <div class="actions">
@@ -100,13 +152,46 @@
         </div>
         <div class="meta"><span>${status}</span><span>·</span><span>${d.words.toLocaleString()} words</span>
           ${d.figures ? `<span>·</span><span>${d.figures} figure${d.figures>1?'s':''}</span>` : ''}
-          ${ingest}${d.warnings ? `<span class="chip" title="Run rsvp check ${esc(d.id)}">${d.warnings} warning${d.warnings>1?'s':''}</span>` : ''}</div>
+          ${added ? `<span>·</span><span title="${esc(new Date(d.added_at).toLocaleString())}">Added ${esc(added)}</span>` : ''}
+          ${ingest}${d.warnings ? `<span class="chip" title="Run rsvp check ${esc(d.id)}">${d.warnings} warning${d.warnings>1?'s':''}</span>` : ''}
+          <button class="remove" data-remove="${esc(d.id)}" data-title="${esc(d.title)}" title="Remove from your library">Remove</button></div>
         <div class="bar"><div style="width:${pct}%"></div></div>
       </div>`;
     }).join('');
-    $('empty').hidden = data.docs.length > 0 || jobs.size > 0;
-    renderJobs();
+    $('toolbar').hidden = allDocs.length < 2;
+    $('count').textContent = terms.length ? `${shown.length} of ${allDocs.length}` : `${allDocs.length} readings`;
+    $('nomatch').hidden = !(allDocs.length && !shown.length);
+    $('empty').hidden = allDocs.length > 0 || jobs.size > 0;
   }
+  $('search').addEventListener('input', renderDocs);
+  $('sort').addEventListener('change', () => { lsSet('rsvp:sort', $('sort').value); renderDocs(); });
+
+  let toastTimer = null;
+  function toast(html, onUndo){
+    $('toast').innerHTML = html + (onUndo ? ' <button id="undo">Undo</button>' : '');
+    $('toast').hidden = false;
+    if (onUndo) $('undo').onclick = () => { $('toast').hidden = true; onUndo(); };
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $('toast').hidden = true; }, 10000);
+  }
+  $('docs').addEventListener('click', async e => {
+    const b = e.target.closest('[data-remove]');
+    if (!b) return;
+    const id = b.dataset.remove, title = b.dataset.title;
+    if (!confirm(`Remove “${title}” from your library?\n\nYour reading position and fixes go with it. You can undo this right after.`)) return;
+    try {
+      const r = await fetch(`/api/docs/${encodeURIComponent(id)}`, {method: 'DELETE', headers: OWN});
+      if (!r.ok) throw new Error((await r.json()).detail || r.status);
+      const {restore_token} = await r.json();
+      allDocs = allDocs.filter(d => d.id !== id); renderDocs();
+      toast(`Removed “${esc(title)}”.`, async () => {
+        await fetch(`/api/docs/${encodeURIComponent(id)}/restore`, {method: 'POST', headers: {...OWN, 'Content-Type': 'application/json'}, body: JSON.stringify({token: restore_token})});
+        await refresh();
+      });
+    } catch (err) {
+      alert('Couldn’t remove it: ' + err.message);
+    }
+  });
 
   function renderJobs(){
     $('jobs').innerHTML = [...jobs.entries()].map(([id, j]) => {

@@ -34,6 +34,9 @@ BOILERPLATE_PATTERNS = [re.compile(p, re.I) for p in (
     r"^continue reading",
     r"^(eat\. watch\. do\.|twice-weekly)",
     r"^thank you for supporting our journalism",
+    # newsletter sign-ups and "latest news" widgets
+    r"get it sent to your inbox|sent by email each|sign up for (our|the) .{0,40}newsletter",
+    r"^(daily business (updates|briefing)|latest updates ›?|is this helpful\??|updated \d+ (minutes|hours) ago)$",
 )]
 END_MARKERS = [re.compile(p, re.I) for p in (
     r"^[\w.+-]+@[\w-]+\.[\w.]+$",                   # reporter's email sign-off
@@ -83,6 +86,22 @@ def _body_family(blocks: list[dict], body_size: float) -> str:
         if abs(b["font"]["size"] - body_size) < 0.3 and len(b["text"]) > 150:
             fam[_family(b["font"]["name"])] += len(b["text"])
     return fam.most_common(1)[0][0] if fam else ""
+
+
+def _is_text_widget(fig: dict, blocks: list[dict]) -> bool:
+    """A drawn box whose text is sentences/headlines rather than numbers and short labels.
+
+    Charts and tables are mostly numbers, axis ticks and short labels. A "Latest Updates" or
+    newsletter box drawn with a border is several sentence-like lines with almost no numbers.
+    """
+    inner = [b for b in blocks if b.get("in_figure") == fig["id"]]
+    words = [w for b in inner for w in b["text"].split()]
+    if len(words) < 12:
+        return False
+    numeric = sum(1 for w in words if re.search(r"\d", w)) / len(words)
+    sentence_lines = sum(1 for b in inner if len(b["text"].split()) >= 6)
+    junk = sum(1 for b in inner if any(p.search(b["text"].strip()) for p in BOILERPLATE_PATTERNS))
+    return numeric < 0.15 and (sentence_lines >= 2 or junk >= 2)
 
 
 def _looks_like_chart(png: Path) -> bool:
@@ -205,6 +224,8 @@ def label_rules(doc_dir: Path) -> dict:
             elif (w * h < 0.03 * page_area[f["page"]] and h < 70) or \
                     (f["origin"] == "raster" and (w < 120 or h < 60 or w / max(h, 1) > 5)):
                 e["kind"] = "decorative"  # logos, icons, banner strips, shadows
+            elif f["origin"] == "vector" and _is_text_widget(f, blocks):
+                e["kind"] = "ad"  # an outlined box of headlines/links ("Latest Updates"), not a chart
             elif f["origin"] == "vector":
                 e["kind"] = "chart"
             elif f["origin"] == "region":

@@ -181,8 +181,9 @@ def create_app(library: Path | None = None, inbox: Path | None = None, watch: bo
                 "method": doc["ingest"]["method"], "warnings": len(doc["ingest"]["warnings"]),
                 "figures": len(doc["figures"]), "pages": doc["source"].get("pages"),
                 "created_at": doc["ingest"].get("created_at"), "last_read": prog.get("updated_at"),
+                "added_at": _added_at(d),
             })
-        out.sort(key=lambda x: x["last_read"] or x["created_at"] or "", reverse=True)
+        out.sort(key=lambda x: x["last_read"] or x["added_at"] or "", reverse=True)
         with lock:
             # unfinished jobs, plus ones finished in the last 10 minutes (so the page can say "Added …")
             pending = [dict(j, job=jid) for jid, j in jobs.items()
@@ -192,6 +193,33 @@ def create_app(library: Path | None = None, inbox: Path | None = None, watch: bo
     @app.get("/api/docs/{doc_id}")
     def get_doc(doc_id: str):
         return FileResponse(doc_dir(doc_id) / "doc.json", media_type="application/json")
+
+    # --- removing readings (recoverable: moved to library/.removed, not deleted) -----------
+    removed_dir = lib / ".removed"
+
+    @app.delete("/api/docs/{doc_id}")
+    def remove_doc(doc_id: str, request: Request):
+        _require_own_page(request)
+        d = doc_dir(doc_id)
+        removed_dir.mkdir(exist_ok=True)
+        dest = removed_dir / f"{d.name}--{time.strftime('%Y%m%d-%H%M%S')}"
+        with lock:
+            shutil.move(str(d), dest)
+        return {"removed": doc_id, "restore_token": dest.name}
+
+    @app.post("/api/docs/{doc_id}/restore")
+    def restore_doc(doc_id: str, request: Request, body: dict):
+        _require_own_page(request)
+        token = str(body.get("token", ""))
+        src = (removed_dir / token).resolve()
+        if src.parent != removed_dir.resolve() or not token.startswith(doc_id + "--") or not (src / "doc.json").exists():
+            raise HTTPException(404, "Nothing to restore")
+        dest = lib / doc_id
+        if dest.exists():
+            raise HTTPException(409, "A reading with this id already exists")
+        with lock:
+            shutil.move(str(src), dest)
+        return {"restored": doc_id}
 
     @app.get("/api/docs/{doc_id}/files/{path:path}")
     def get_file(doc_id: str, path: str):
@@ -385,6 +413,26 @@ def _words_before(doc: dict, prog: dict) -> int:
             return n + int(prog.get("word", 0))
         n += len(p["text"].split())
     return 0
+
+
+def _added_at(d: Path) -> str | None:
+    """When a reading was first added. Stored once in meta.json, since doc.json and
+    extract.json get rewritten whenever a reading is re-processed."""
+    meta = _read_json(d / "meta.json") or {}
+    if meta.get("added_at"):
+        return meta["added_at"]
+    ex = _read_json(d / "extract.json") or {}
+    added = ex.get("created_at")
+    if not added:
+        try:
+            added = datetime.fromtimestamp((d / "source.pdf").stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+        except OSError:
+            return None
+    try:
+        _write_json(d / "meta.json", {**meta, "added_at": added})
+    except OSError:
+        pass
+    return added
 
 
 def _exit_soon(delay: float = 0.4) -> None:
