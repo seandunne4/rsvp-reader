@@ -20,7 +20,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -216,6 +216,37 @@ def create_app(library: Path | None = None, inbox: Path | None = None, watch: bo
             _write_json(d / "progress.json", new)
         return {"saved": True, "progress": new}
 
+    # --- quitting and start-at-login (the reader runs in the background, without a window) ---
+    def _require_own_page(request: Request) -> None:
+        # A custom header can't be sent cross-site without CORS approval (which this server
+        # never gives), so other websites can't quit the reader or change login items.
+        if request.headers.get("x-rsvp-reader") != "1":
+            raise HTTPException(403, "Missing X-RSVP-Reader header")
+
+    @app.post("/api/shutdown")
+    def shutdown(request: Request):
+        _require_own_page(request)
+        _exit_soon()
+        return {"stopping": True}
+
+    @app.get("/api/autostart")
+    def get_autostart():
+        from .background import autostart_enabled, autostart_supported
+
+        return {"supported": autostart_supported(), "enabled": autostart_supported() and autostart_enabled()}
+
+    @app.put("/api/autostart")
+    def put_autostart(request: Request, body: dict):
+        from .background import autostart_supported, set_autostart
+
+        _require_own_page(request)
+        if not autostart_supported():
+            raise HTTPException(400, "Starting at login isn't supported on this system.")
+        try:
+            return {"supported": True, "enabled": set_autostart(bool(body.get("enabled")))}
+        except Exception as e:
+            raise HTTPException(500, f"Couldn't change the login item: {e}")
+
     @app.get("/api/settings")
     def get_settings():
         return settings()
@@ -356,24 +387,30 @@ def _words_before(doc: dict, prog: dict) -> int:
     return 0
 
 
-def _already_running(url: str) -> bool:
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(url + "/api/settings", timeout=1.5) as r:
-            return r.status == 200
-    except Exception:
-        return False
+def _exit_soon(delay: float = 0.4) -> None:
+    """End the server process shortly, after the HTTP response has been sent."""
+    def bye():
+        time.sleep(delay)
+        os._exit(0)
+    threading.Thread(target=bye, daemon=True).start()
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765, library: Path | None = None, open_browser: bool = False) -> None:
+    import sys
     import webbrowser
 
     import uvicorn
 
+    from .background import is_running, log_path
+
+    # Started without a console (pythonw at login, or `rsvp start`): send output to the log
+    # file, since writing to a missing console would crash the logging setup.
+    if sys.stdout is None or sys.stderr is None:
+        sys.stdout = sys.stderr = open(log_path(), "a", buffering=1, encoding="utf-8")
+
     url = f"http://{host}:{port}"
-    if _already_running(url):
-        # Double-clicking the launcher twice shouldn't fail with "port in use": just show the page.
+    if is_running(url):
+        # Starting it twice shouldn't fail with "port in use": just show the page.
         print(f"RSVP Reader is already running at {url}", flush=True)
         if open_browser:
             webbrowser.open(url)
@@ -382,11 +419,11 @@ def serve(host: str = "127.0.0.1", port: int = 8765, library: Path | None = None
     print(f"RSVP Reader on {url}")
     print(f"  library: {library or library_dir()}")
     print(f"  inbox:   {default_inbox()}  (copy PDFs here to add them)")
-    print("  Keep this window open while you read. Close it (or press Ctrl+C) to stop the reader.", flush=True)
+    print("  Click Quit in the library page (or press Ctrl+C here) to stop the reader.", flush=True)
     if open_browser:
         def open_when_ready():
             for _ in range(60):
-                if _already_running(url):
+                if is_running(url):
                     webbrowser.open(url)
                     return
                 time.sleep(0.5)

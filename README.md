@@ -74,23 +74,31 @@ cd RSVP-Reader
 - **Windows:** `Start RSVP Reader.bat`
 - **Mac:** `Start RSVP Reader.command`
 
-A window opens to run the reader, and your browser opens the library at
-**http://127.0.0.1:8765**.
+Your browser opens the library at **http://127.0.0.1:8765**. A small window flashes up while
+the reader starts, then closes by itself. The reader keeps running quietly in the background;
+there's nothing to keep open. Bookmark the page so you can come back to it anytime.
 
-**Keep that window open while you read.** Closing it stops the reader. If it stops, the library
-page shows a red "The reader has stopped" box; double-click the launcher again and the page
-reconnects by itself. If the reader is already running, double-clicking just opens the page.
+- **Stopping it:** click **Quit** at the top of the library page. Shutting down or logging out
+  also stops it.
+- **Start at login:** tick **Start at login** at the top of the library page, and the reader
+  starts in the background whenever you log in. Then the bookmark is all you need.
+- **If it isn't running,** the library page shows a red "The reader isn't running" box. Double-click
+  the launcher and the page reconnects by itself. Double-clicking while it's already running just
+  opens the page.
 
 <details><summary>Prefer the command line?</summary>
 
-From the `RSVP-Reader` folder:
+From the `RSVP-Reader` folder (on Windows, use `.\rsvp.ps1` from PowerShell, preceded by
+`powershell -ExecutionPolicy Bypass -File` if scripts are blocked):
 
-| Windows (PowerShell) | Mac (Terminal) |
+| Command | What it does |
 |---|---|
-| `powershell -ExecutionPolicy Bypass -File .\rsvp.ps1 serve --open` | `./rsvp.sh serve --open` |
+| `./rsvp.sh start` | start in the background and open the browser (`--no-open` to skip the browser) |
+| `./rsvp.sh stop` | stop the background reader |
+| `./rsvp.sh autostart on` / `off` | start (or don't) at login |
+| `./rsvp.sh serve` | run in the foreground in this window instead; Ctrl+C stops it |
 
-On Windows, `-ExecutionPolicy Bypass` gets around Windows' default block on running script files.
-It applies only to this one command. Leave out `--open` if you don't want a browser tab opened.
+The background reader writes its log to `.rsvp-reader/server.log` in your home folder.
 </details>
 
 **Tip:** for one-click starts, make a shortcut to the launcher on your desktop. On Windows,
@@ -189,8 +197,11 @@ Then restart the reader. Your library isn't touched.
 
 ## Troubleshooting
 
-- **"The reader has stopped" / "Failed to fetch":** the reader's window was closed or the computer
-  went to sleep. Double-click the launcher again; the page reconnects by itself.
+- **"The reader isn't running" / "Failed to fetch":** it was stopped with Quit, or by a
+  restart or log-out. Double-click the launcher again (or tick **Start at login** so this
+  doesn't happen); the page reconnects by itself.
+- **The launcher says the reader couldn't start:** it prints the end of the log. The full log is
+  in `.rsvp-reader/server.log` in your home folder.
 - **"running scripts is disabled on this system" (Windows):** use the launcher, or the full
   command above with `-ExecutionPolicy Bypass`.
 - **The Mac launcher won't open ("unidentified developer"):** right-click it, choose Open, then
@@ -199,7 +210,7 @@ Then restart the reader. Your library isn't touched.
 - **"uv is not recognized" / "command not found: uv":** open a new PowerShell or Terminal window
   after installing uv. On Mac, check that Homebrew finished without errors.
 - **Port already in use:** something else is using port 8765. Start on a different port with
-  `serve --port 8766 --open`.
+  `start --port 8766`.
 - **Upload or drag-and-drop does nothing:** your browser may be blocking file uploads. Use the
   Inbox folder instead.
 - **A reading looks wrong:** open it in Review and fix the blocks, or run `/ingest` on it if

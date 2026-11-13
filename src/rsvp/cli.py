@@ -138,6 +138,32 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_start(args: argparse.Namespace) -> int:
+    from .background import start
+
+    return start(port=args.port, library=Path(args.library) if args.library else None,
+                 open_browser=not args.no_open, log=out)
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    from .background import stop
+
+    return stop(port=args.port, log=out)
+
+
+def cmd_autostart(args: argparse.Namespace) -> int:
+    from .background import autostart_enabled, autostart_supported, set_autostart
+
+    if not autostart_supported():
+        out("Starting at login is only supported on Windows and macOS.")
+        return 1
+    if args.state in ("on", "off"):
+        set_autostart(args.state == "on")
+    on = autostart_enabled()
+    out(f"Start at login: {'on' if on else 'off'}" + (" (the reader starts in the background when you log in)" if on else ""))
+    return 0
+
+
 def cmd_golden(args: argparse.Namespace) -> int:
     """Save a reviewed doc.json as the golden reference for a fixture."""
     import shutil
@@ -207,7 +233,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-v", "--verbose", action="store_true", help="list missing/leaked sentences and figure problems")
     p.set_defaults(func=cmd_eval)
 
-    p = sub.add_parser("serve", help="run the local library + reader at http://127.0.0.1:8765")
+    p = sub.add_parser("start", help="start the reader in the background (no window) and open the browser")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--library", help="library folder (default: RSVP_LIBRARY or ./library)")
+    p.add_argument("--no-open", action="store_true", help="don't open the browser")
+    p.set_defaults(func=cmd_start)
+
+    p = sub.add_parser("stop", help="stop a reader running in the background")
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(func=cmd_stop)
+
+    p = sub.add_parser("autostart", help="start the reader automatically when you log in (on/off/status)")
+    p.add_argument("state", nargs="?", choices=["on", "off", "status"], default="status")
+    p.set_defaults(func=cmd_autostart)
+
+    p = sub.add_parser("serve", help="run the reader in this window (foreground) at http://127.0.0.1:8765")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--library", help="library folder (default: RSVP_LIBRARY or ./library)")

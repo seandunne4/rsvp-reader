@@ -1,7 +1,8 @@
 @echo off
 rem Double-click to start the RSVP Reader and open it in your browser.
-rem Keep this window open while you read; closing it stops the reader.
-title RSVP Reader - keep this window open while you read
+rem The reader runs in the background, so this window closes by itself.
+rem To stop the reader, click Quit in the library page.
+title Starting RSVP Reader...
 cd /d "%~dp0"
 
 where uv >nul 2>nul
@@ -15,9 +16,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rsvp.ps1" serve --open
+echo Starting RSVP Reader... ^(the first start downloads what it needs and takes a few minutes^)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rsvp.ps1" start
 if errorlevel 1 (
   echo.
-  echo The reader stopped with an error ^(see above^).
+  echo The reader couldn't start ^(see above^).
   pause
 )
